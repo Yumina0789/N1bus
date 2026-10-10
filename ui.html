@@ -851,7 +851,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
         </div>
 
         <details class="fold" open>
-          <summary>磁盘明细<span class="q" id="ovDiskNote"></span></summary>
+          <summary>磁盘明细</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>挂载点</th><th>设备</th><th class="num">已用</th>
               <th class="num">总量</th><th class="num">可用</th><th class="num">占比</th>
@@ -860,12 +860,12 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
         </details>
 
         <details class="fold" open>
-          <summary>进程与服务<span class="q" id="ovProcNote"></span></summary>
+          <summary>进程与服务</summary>
           <div class="foldbody"><div class="kv" id="ovProc"></div></div>
         </details>
 
         <details class="fold" open>
-          <summary>登录失败来源<span class="q" id="ovSecNote"></span></summary>
+          <summary>登录失败来源</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>来源 IP</th><th class="num">失败次数</th>
               <th class="num">占比</th></tr></thead><tbody id="ovSec"></tbody></table></div>
@@ -1474,7 +1474,6 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   <section id="tab-tasks" class="hidden">
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-clock"/></svg>任务
-        <span class="q" id="mtNote"></span>
         <span class="end" id="mtMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll"><table><thead><tr><th>动作</th><th>参数</th><th class="num">周期</th>
@@ -2019,8 +2018,6 @@ async function loadOverview(){
           <span class="num ${cls}">${p.toFixed(1)}%</span></div></td>
         <td class="num hint">${ip.toFixed(1)}%</td></tr>`;}).join("") ||
       '<tr><td colspan="7" class="empty">无数据</td></tr>';
-    const dn = document.getElementById("ovDiskNote");
-    if(dn) dn.textContent = (j.disk || []).length + " 个挂载点";
 
     drawSpark(j.series || []);
   }catch(e){ if(e.message !== "unauthorized") console.warn(e); }
@@ -2036,8 +2033,6 @@ function renderOvProc(){
     ["服务运行中", (sv.running || 0) + " / " + (sv.total || 0)], ["服务失败", num(sv.failed)],
     ["容器运行中", (dk.running || 0) + " / " + (dk.total || 0)],
   ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join("");
-  const note = document.getElementById("ovProcNote");
-  if(note) note.textContent = "进程 " + num(pr.total) + " · 服务 " + (sv.running || 0) + "/" + (sv.total || 0);
 }
 function renderOvSec(){
   const box = document.getElementById("ovSec");
@@ -2054,8 +2049,6 @@ function renderOvSec(){
           <i style="width:${((Number(x.n) || 0) / mx * 100).toFixed(0)}%"></i></span>
       </div></td></tr>`).join("") ||
     '<tr><td colspan="3" class="empty">无记录</td></tr>';
-  const note = document.getElementById("ovSecNote");
-  if(note) note.textContent = "共 " + num(lg.failed) + " 次失败 · " + ips.length + " 个来源";
 }
 
 /* 监控曲线：折线 + 面积填充（带底色的图） */
@@ -3437,8 +3430,6 @@ let MTTASKS = [], MTACTIONS = [];
 async function loadTasks(){
   const j = await api("/api/tasks");
   MTTASKS = j.tasks || []; MTACTIONS = j.actions || [];
-  const note = document.getElementById("mtNote");
-  if(note) note.textContent = j.note || "";
   const meta = document.getElementById("mtMeta");
   if(meta) meta.textContent = MTTASKS.length + " 个任务 · " + (j.now || "");
   const sel = document.getElementById("mtAction");

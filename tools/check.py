@@ -96,6 +96,17 @@ if m:
     ok(all(t in js for t in re.findall(r'data-tab="([a-z]+)"', html)),
        "每个标签页都在 JS 的 TABS 里注册过")
 
+    # summary 里的 .q（说明位）在运行时会被 stripFoldNotes 移除 —— 标题行只留标题与
+    # 状态数字。所以**往那儿写内容是白写**：写过、永远不会显示，而且让下一个读者以为
+    # 「写了就该看得见」。这块以前就埋了 4 个这样的节点（ovDiskNote / ovProcNote /
+    # ovSecNote / mtNote），一直没人发现。要展示的摘要写进 .foldbody。
+    slots = set()
+    for sm in re.finditer(r"<summary>(.*?)</summary>", html, re.S):
+        slots |= set(re.findall(r'<span class="q"[^>]*\bid="([A-Za-z0-9_-]+)"', sm.group(1)))
+    written = sorted(i for i in slots
+                     if re.search(r'getElementById\("%s"\)' % re.escape(i), js))
+    ok(not written, "没有往「会被移除的 summary 说明位」写内容：%s" % (written or "干净"))
+
 print("== 安全底线 ==")
 src = (ROOT / "n1bus.py").read_text(encoding="utf-8")
 ok("shell=True" not in src, "代码里没有 shell=True")
