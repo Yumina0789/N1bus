@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# N1bus 安装脚本：把面板装成宿主机上的 systemd 服务。
+#
+#   curl -fsSL https://raw.githubusercontent.com/Yumina0789/N1bus/main/install.sh | sudo bash
+#   sudo bash install.sh --port 8402 --bind 127.0.0.1
+#   sudo bash install.sh --uninstall          # 停掉并删服务，数据与 token 留着
+#   sudo bash install.sh --purge              # 连数据一起删
+#
+# 为什么装在宿主机而不是容器：面板要管 systemd、进程、/proc、/var/log、docker，
+# 容器化就得 privileged + 挂 docker.sock，隔离反而没了。见 docs/adr/0001。
+set -euo pipefail
+
+PREFIX="/opt/n1bus"
+DATA_DIR="/var/lib/n1bus"
+UNIT="/etc/systemd/system/n1bus.service"
+PORT="8402"
+BIND="127.0.0.1"
+ALLOW_IP=""
+TOKEN=""
+ENFORCE_URL="${N1BUS_ENFORCE_URL:-}"
+ENFORCE_TOKEN="${N1BUS_ENFORCE_TOKEN:-}"
+REPO_RAW="${N1BUS_REPO_RAW:-https://raw.githubusercontent.com/Yumina0789/N1bus/main}"
+UNINSTALL=0
+PURGE=0
+PY="$(command -v python3 || true)"
+# 管道执行时 BASH_SOURCE 可能没有，退回 $0；再不行就当当前目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo ".")"
+
+usage() {
+  cat <<'EOF'
+N1bus 安装脚本：把面板装成宿主机上的 systemd 服务。
+
+选项：
+  --port N        监听端口（默认 8402）
+  --bind IP       监听地址（默认 127.0.0.1）。逗号分隔可绑多个，写 docker 表示
+                  再绑一份宿主在 docker 网桥上的地址（反代在容器里时需要）
+  --allow-ip 网段  来源白名单（逗号分隔）；留空 = 不限制
+  --prefix DIR    安装目录（默认 /opt/n1bus）
+  --data-dir DIR  数据目录（默认 /var/lib/n1bus，放 token 与审计日志）
+  --token STR     指定 token（默认随机生成）
+  --enforce-url U 从哪个面板拉「该封谁」，例如 http://127.0.0.1:8099（v1m-dash）
+  --enforce-token T  上面那个面板的访问 token（给了才会开启自动封禁）
+  --uninstall     停止并移除服务，保留数据与 token
+  --purge         连数据目录一起删
+  -h, --help      看这段
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port) PORT="${2:?}"; shift 2 ;;
+    --bind) BIND="${2:?}"; shift 2 ;;
+    --allow-ip) ALLOW_IP="${2:?}"; shift 2 ;;
+    --prefix) PREFIX="${2:?}"; shift 2 ;;
+    --data-dir) DATA_DIR="${2:?}"; shift 2 ;;
+    --token) TOKEN="${2:?}"; shift 2 ;;
+    --enforce-url) ENFORCE_URL="${2:?}"; shift 2 ;;
+    --enforce-token) ENFORCE_TOKEN="${2:?}"; shift 2 ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    --purge) UNINSTALL=1; PURGE=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "未知参数：$1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [ "$(id -u)" != "0" ]; then
+  echo "需要 root：面板要调 systemctl / docker / 读 /proc 与 /var/log。" >&2
+  exit 1
+fi
+
+if [ "$UNINSTALL" = "1" ]; then
+  echo "==> 停止并移除 n1bus.service"
+  systemctl disable --now n1bus 2>/dev/null || true
+  rm -f "$UNIT"
+  systemctl daemon-reload || true
+  if [ "$PURGE" = "1" ]; then
+    echo "==> 删除 $DATA_DIR 与 $PREFIX"
+    rm -rf "$DATA_DIR" "$PREFIX"
+  else
+    echo "==> 数据保留在 $DATA_DIR（想删就加 --purge）"
+  fi
+  echo "完成。"
+  exit 0
+fi
+
+if [ -z "$PY" ]; then
+  echo "找不到 python3。N1bus 只用标准库，装一个 python3 就行（apt install -y python3）。" >&2
+  exit 1
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "==> 取源码"
+for f in n1bus.py ui.html; do
+  if [ -f "$SCRIPT_DIR/$f" ]; then
+    cp -f "$SCRIPT_DIR/$f" "$WORK/$f"
+  else
+    curl -fsSL --retry 3 --connect-timeout 15 -H 'Cache-Control: no-cache' \
+      "$REPO_RAW/$f" -o "$WORK/$f"
+  fi
+  [ -s "$WORK/$f" ] || { echo "拿不到 $f" >&2; exit 1; }
+done
+
+echo "==> 安装到 $PREFIX"
+mkdir -p "$PREFIX" "$DATA_DIR"
+chmod 700 "$DATA_DIR"
+for f in n1bus.py ui.html; do
+  # 留上一份：升级出问题能立刻回滚
+  [ -f "$PREFIX/$f" ] && cp -f "$PREFIX/$f" "$PREFIX/$f.bak"
+  install -m 0644 "$WORK/$f" "$PREFIX/$f"
+done
+
+if [ ! -s "$DATA_DIR/n1bus.token" ]; then
+  if [ -n "$TOKEN" ]; then
+    printf '%s' "$TOKEN" > "$DATA_DIR/n1bus.token"
+  else
+    "$PY" -c 'import secrets;print(secrets.token_urlsafe(24),end="")' > "$DATA_DIR/n1bus.token"
+  fi
+fi
+chmod 600 "$DATA_DIR/n1bus.token"
+TOKEN="$(cat "$DATA_DIR/n1bus.token")"
+
+echo "==> 写 systemd 单元"
+ENFORCE_ARGS=""
+if [ -n "$ENFORCE_URL" ] && [ -n "$ENFORCE_TOKEN" ]; then
+  ENFORCE_ARGS=" --enforce-url $ENFORCE_URL --enforce-token $ENFORCE_TOKEN"
+  echo "    自动封禁已配置：从 $ENFORCE_URL 拉取待执行列表"
+else
+  echo "    没给 --enforce-url/--enforce-token，自动封禁关闭（面板上仍可手动封禁）"
+fi
+ALLOW_ARGS=""
+if [ -n "$ALLOW_IP" ]; then
+  ALLOW_ARGS=" --allow-ip $ALLOW_IP"
+  echo "    来源白名单：$ALLOW_IP"
+fi
+cat > "$UNIT" <<EOF
+[Unit]
+Description=N1bus 服务器管理面板
+Documentation=https://github.com/Yumina0789/N1bus
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir $DATA_DIR --token-file $DATA_DIR/n1bus.token$ENFORCE_ARGS$ALLOW_ARGS
+Restart=always
+RestartSec=3
+User=root
+# 面板本身就是半个 root 工具（要 systemctl / docker / 杀进程），下面这些只是顺手挡误伤。
+# 注意 ProtectSystem 的档位：yes = /usr /boot 只读；**full = 连 /etc 也只读**；
+# strict = 只剩 /dev /proc /sys 可写。所以要用 full 就必须把 ufw 需要的目录放行，
+# 否则 ufw deny 会以「'/etc/ufw/user.rules' is not writable」失败（踩过）。
+ProtectSystem=full
+ReadWritePaths=/etc/ufw
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable n1bus
+# 一定要 restart 而不是 `enable --now`：对已经在跑的服务，`--now` 不会重启它，
+# 于是升级完还在跑旧代码（这个坑我自己踩过一次：新接口一直 404）。
+systemctl restart n1bus
+sleep 1
+if ! systemctl is-active --quiet n1bus; then
+  echo "!! 服务没起来，看日志：journalctl -u n1bus -n 50 --no-pager" >&2
+  exit 1
+fi
+
+# 服务 active 不等于端口在听：面板要先建好采样器才会 bind。等它真的能连上再报成功。
+PROBE_IP="${BIND%%,*}"                 # --bind 可以是逗号列表，拿第一个探活
+[ "$PROBE_IP" = "0.0.0.0" ] && PROBE_IP="127.0.0.1"
+[ "$PROBE_IP" = "docker" ] && PROBE_IP="127.0.0.1"
+printf '==> 等端口 %s:%s 就绪' "$PROBE_IP" "$PORT"
+ready=0
+for _ in $(seq 1 30); do
+  if (exec 3<>"/dev/tcp/$PROBE_IP/$PORT") 2>/dev/null; then
+    exec 3<&- 2>/dev/null || true
+    ready=1
+    break
+  fi
+  printf '.'
+  sleep 0.5
+done
+printf '\n'
+if [ "$ready" != "1" ]; then
+  echo "!! 端口没起来，看日志：journalctl -u n1bus -n 50 --no-pager" >&2
+  exit 1
+fi
+echo "==> 服务在跑，端口已就绪"
+
+cat <<EOF
+
+N1bus 装好了。
+
+  本机打开：http://$BIND:$PORT/?token=$TOKEN
+  纯 token ：$TOKEN（存在 $DATA_DIR/n1bus.token，权限 600）
+
+  从你自己的电脑访问，先开隧道（最稳）：
+      ssh -L $PORT:127.0.0.1:$PORT root@<这台机器的 IP>
+      浏览器打开 http://127.0.0.1:$PORT/?token=$TOKEN
+
+  想用域名就直接交给反向代理，别把 $BIND 改成 0.0.0.0：
+  这是个能启停服务、杀进程、封 IP 的 root 面板，公网上只有 token 一道门。
+
+  看日志：journalctl -u n1bus -f
+  升级  ：重跑这个脚本（会自动留 .bak）
+  卸载  ：bash install.sh --uninstall [--purge]
+EOF
