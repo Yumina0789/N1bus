@@ -149,10 +149,13 @@ RestartSec=3
 User=root
 # 面板本身就是半个 root 工具（要 systemctl / docker / 杀进程），下面这些只是顺手挡误伤。
 # 注意 ProtectSystem 的档位：yes = /usr /boot 只读；**full = 连 /etc 也只读**；
-# strict = 只剩 /dev /proc /sys 可写。所以要用 full 就必须把 ufw 需要的目录放行，
-# 否则 ufw deny 会以「'/etc/ufw/user.rules' is not writable」失败（踩过）。
+# strict = 只剩 /dev /proc /sys 可写。所以要用 full 就必须把**会被写的**目录逐个放行，
+# 否则对应的白名单动作会以「... is not writable」失败（这个坑踩过两次）：
+#   /etc/ufw            —— ufw.allow / ufw.deny 要写 user.rules
+#   /etc/systemd/system —— boot.enable / boot.disable 要建 *.wants/ 符号链接
+#                          （漏了它，面板上「设为开机自启」永远失败）
 ProtectSystem=full
-ReadWritePaths=/etc/ufw
+ReadWritePaths=/etc/ufw /etc/systemd/system
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true

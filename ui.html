@@ -1638,9 +1638,12 @@ function labelTables(){
     });
   });
 }
-/* 折叠卡片的说明文字搬到正文顶部：标题行保持一行，读者展开才看到说明 */
+/* 折叠卡片的标题行只留标题与状态数字：说明文字（summary 里的 .q）直接移除。
+   CSS 里那条 details.fold:not([open])>summary .q{display:none} 只是**兜底**
+   （JS 还没跑到时别让它露出来），不是「展开就该显示」。
+   所以：往 summary 的 .q 里写内容是白写，会被这里删掉。
+   真要展示的摘要，写进 .foldbody。 */
 function stripFoldNotes(){
-  /* 折叠卡片的说明文字直接去掉：标题行只留标题与状态数字 */
   document.querySelectorAll("details.fold > summary > .q").forEach(q => q.remove());
 }
 labelTables();
