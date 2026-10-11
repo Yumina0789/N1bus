@@ -695,7 +695,7 @@ async function loadSecurity(){
     const act = !how
       ? `<button class="act danger mini" onclick="runAction('ufw.deny',{ip:'${esc(x.ip)}'})">封禁</button>`
       : `<button class="act ghost mini" onclick="defenderUnban('${esc(x.ip)}','${esc(jail)}')">解除封禁</button>`;
-    return `<tr><td class="mono">${esc(x.ip)}</td><td class="num">${num(x.n)}</td>
+    return `<tr><td class="mono cell-main">${esc(x.ip)}</td><td class="num cell-sub">${num(x.n)}</td>
       <td>${state}</td><td class="num">${act}</td></tr>`;}).join("") ||
     `<tr><td colspan="4" class="empty">${openIps.length || allIps.length ? "全部来源都已封禁" : "没有失败记录"}</td></tr>`;
   {
@@ -707,7 +707,7 @@ async function loadSecurity(){
       : "";
   }
   document.getElementById("seUsers").innerHTML = (lg.top_users || []).map(x =>
-    `<tr><td class="mono">${esc(x.user)}</td><td class="num">${num(x.n)}</td></tr>`).join("") ||
+    `<tr><td class="mono cell-main">${esc(x.user)}</td><td class="num cell-sub">${num(x.n)}</td></tr>`).join("") ||
     '<tr><td colspan="2" class="empty">暂无被尝试的用户名</td></tr>';
   document.getElementById("seIPsMeta").textContent = allIps.length
     ? ("共 " + allIps.length + " 个来源" + (lg.lines_scanned ? "，扫了 " + num(lg.lines_scanned) + " 行日志" : ""))
@@ -1758,13 +1758,15 @@ async function loadProcesses(){
   const c = j.counts || {};
   document.getElementById("prMeta").textContent = "共 " + num(c.total) + " 个进程 · 僵尸 " + num(c.zombie);
   patchRows(document.getElementById("prBody"), (j.top || {}).top || [], p => p.pid, p => [
-    {c: "mono", h: esc(p.pid)},
-    {h: esc(userLabel(p.user))},
+    // 主体是「哪个进程」——命令名。PID / 用户 / 启动时长都是它的属性，退一档；
+    // 三个占用率保持默认字号（数字压小反而难读），只让命令名更突出。
+    {c: "mono cell-mini", h: esc(p.pid)},
+    {c: "cell-sub", h: esc(userLabel(p.user))},
     {c: "num", h: p.cpu.toFixed(1)},
     {c: "num", h: p.mem.toFixed(1)},
     {c: "num", h: bytes(p.rss)},
-    {c: "hint", h: dur(p.etimes)},
-    {c: "mono", s: "cursor:pointer", a: `data-full="${esc(p.args)}"`, h: esc(cmdName(p.args))},
+    {c: "cell-mini", h: dur(p.etimes)},
+    {c: "mono cell-main", s: "cursor:pointer", a: `data-full="${esc(p.args)}"`, h: esc(cmdName(p.args))},
     {c: "num", h:
       `<button class="act danger mini" title="结束这个进程（SIGKILL：立即终止，进程无法拦截）"
         onclick="runAction('process.kill',{pid:'${esc(p.pid)}'})">终止</button>`},  ], null, ((j.top || {}).error
