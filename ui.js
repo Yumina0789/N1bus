@@ -783,22 +783,22 @@ function renderPorts(a){
     ? esc(x.listen) + (x.docker ? ' <span class="hint">Docker 发布</span>' : "")
     : '<span class="hint">无服务监听</span>';
   document.getElementById("sePortIn").innerHTML = inList.map(x =>
-    `<tr><td class="mono">${num(x.port)}</td><td class="mono">${esc(x.proto)}</td>
-      <td class="mono hint">${esc(x.from)}</td>
-      <td class="hint">${x.v6 ? "含 v6" : "仅 v4"}</td>
-      <td>${svcCell(x)}</td>
+    `<tr><td class="mono cell-main">${num(x.port)}</td><td class="mono cell-mini">${esc(x.proto)}</td>
+      <td class="mono cell-sub">${esc(x.from)}</td>
+      <td class="cell-mini">${x.v6 ? "含 v6" : "仅 v4"}</td>
+      <td class="cell-sub">${svcCell(x)}</td>
       <td class="num">${portUnallowBtn(x.dir, x.port, x.proto)}</td></tr>`).join("")
     || '<tr><td colspan="6" class="empty">没有入站放行规则</td></tr>';
   document.getElementById("sePortOut").innerHTML = outList.map(x =>
-    `<tr><td class="mono">${num(x.port)}</td><td class="mono">${esc(x.proto)}</td>
-      <td class="mono hint">${esc(x.from)}</td>
-      <td class="hint">${x.v6 ? "含 v6" : "仅 v4"}</td>
+    `<tr><td class="mono cell-main">${num(x.port)}</td><td class="mono cell-mini">${esc(x.proto)}</td>
+      <td class="mono cell-sub">${esc(x.from)}</td>
+      <td class="cell-mini">${x.v6 ? "含 v6" : "仅 v4"}</td>
       <td class="num">${portUnallowBtn(x.dir, x.port, x.proto)}</td></tr>`).join("")
     || '<tr><td colspan="5" class="empty">没有出站放行规则（ufw 出站默认放行，通常无需添加）</td></tr>';
   document.getElementById("sePortOther").innerHTML = other.map(x =>
-    `<tr><td class="mono">${esc(x.to)}</td><td class="mono">${esc(x.action)}</td>
-      <td class="hint">${esc(x.dir === "in" ? "入站" : x.dir === "out" ? "出站" : "转发")}</td>
-      <td class="mono hint">${esc(x.from)}</td></tr>`).join("")
+    `<tr><td class="mono cell-main">${esc(x.to)}</td><td class="cell-sub">${esc(x.action)}</td>
+      <td class="cell-mini">${esc(x.dir === "in" ? "入站" : x.dir === "out" ? "出站" : "转发")}</td>
+      <td class="mono cell-sub">${esc(x.from)}</td></tr>`).join("")
     || '<tr><td colspan="4" class="empty">没有这类规则</td></tr>';
 
   // 待处理提示：该内容是本卡片的核心价值 —— 直接列出「已监听但未放行」的端口
@@ -998,18 +998,21 @@ async function loadNet(){
   document.getElementById("ptMeta").textContent = L.available
     ? (L.ports.length + " 个监听 · 对外 " + L.exposed) : (L.hint || "");
   patchRows(document.getElementById("ptBody"), L.ports || [], p => p.proto + "|" + p.local, p => [
-    {c: "mono", h: esc(p.proto)},
-    {c: "mono", h: esc(p.local)},
-    {c: "num mono", h: esc(p.port)},
-    {h: esc(p.process || "–")},
-    {c: "mono hint", h: esc(p.pid || "–")},
-    {h: p.exposed ? dot("warn", "对外（" + p.local + "）") : dot("mute", "仅本机")},
+    // 同一行里六种异质信息，靠字号与深浅分主次：端口（主体）> 进程 > 地址 > 协议 / PID。
+    // 「可达范围」此前写成「对外（0.0.0.0）」—— 地址就在旁边那一列，纯属重复。
+    {c: "mono cell-mini", h: esc(p.proto)},
+    {c: "mono cell-sub", h: esc(p.local)},
+    {c: "num mono cell-main", h: esc(p.port)},
+    {c: "cell-main", h: esc(p.process || "–")},
+    {c: "mono cell-mini", h: esc(p.pid || "–")},
+    {h: p.exposed ? dot("warn", "对外") : dot("mute", "仅本机")},
   ], null, L.available ? '<tr><td colspan="6" class="empty">没有监听端口</td></tr>'
                        : '<tr><td colspan="6" class="empty">'
                          + esc(L.hint || "没有 ss 命令") + '</td></tr>');
   document.getElementById("ptConn").innerHTML = (C.connections || []).map(c =>
-    `<tr><td class="mono">${esc(c.proto)}</td><td class="mono">${esc(c.local)}</td>
-      <td class="mono">${esc(c.peer)}</td></tr>`).join("") ||
+    `<tr><td class="mono cell-mini">${esc(c.proto)}</td>
+      <td class="mono cell-sub">${esc(c.local)}</td>
+      <td class="mono cell-main">${esc(c.peer)}</td></tr>`).join("") ||
     (C.available ? '<tr><td colspan="3" class="empty">没有已建立的连接</td></tr>'
                  : '<tr><td colspan="3" class="empty">'
                    + esc(C.hint || "没有 ss 命令") + '</td></tr>');
