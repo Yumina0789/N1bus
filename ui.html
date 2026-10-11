@@ -48,17 +48,18 @@
 
     <div id="setupBox" class="hidden">
       <div class="hint mb-sm">
-        尚无账户，请创建首个管理员；之后以<b>用户名 + 密码</b>登录。
+        本机尚未创建账户。请先创建第一个管理员账户，之后用用户名与密码登录。
+        所有账户权限相同（均为管理员）。
       </div>
       <label style="font-size:12px;color:var(--dim)">用户名</label>
       <input id="suName" type="text" style="width:100%;margin:6px 0" placeholder="例如 admin"
              autocomplete="username">
       <label style="font-size:12px;color:var(--dim)">密码（至少 <span id="pwMin">8</span> 位）</label>
       <input id="suPass" type="password" style="width:100%;margin:6px 0" autocomplete="new-password">
-      <label style="font-size:12px;color:var(--dim)">再输一遍</label>
+      <label style="font-size:12px;color:var(--dim)">确认密码</label>
       <input id="suPass2" type="password" style="width:100%;margin:6px 0" autocomplete="new-password">
       <button class="act" style="width:100%;justify-content:center;margin-top:8px" onclick="doSetup()">
-        <svg class="ico"><use href="#i-check"/></svg>创建账户并进入</button>
+        <svg class="ico"><use href="#i-check"/></svg>创建账户并登录</button>
     </div>
 
     <div id="loginBox" class="hidden">
@@ -81,20 +82,20 @@
     </div>
     <nav class="side-nav">
       <button data-tab="overview" class="active"><svg class="ico"><use href="#i-gauge"/></svg>概览</button>
-      <button data-tab="ext"><svg class="ico"><use href="#i-plug"/></svg>扩展功能</button>
+      <button data-tab="ext"><svg class="ico"><use href="#i-plug"/></svg>模块</button>
       <button data-tab="runtime"><svg class="ico"><use href="#i-server"/></svg>运行</button>
       <button data-tab="security"><svg class="ico"><use href="#i-shield"/></svg>安全</button>
       <button data-tab="system"><svg class="ico"><use href="#i-cpu"/></svg>系统</button>
       <button data-tab="files"><svg class="ico"><use href="#i-file"/></svg>文件</button>
       <button data-tab="tasks"><svg class="ico"><use href="#i-clock"/></svg>计划任务</button>
-      <button data-tab="logs"><svg class="ico"><use href="#i-file"/></svg>日志 · 审计</button>
+      <button data-tab="logs"><svg class="ico"><use href="#i-file"/></svg>日志与审计</button>
       <button data-tab="settings"><svg class="ico"><use href="#i-gear"/></svg>设置</button>
     </nav>
     <div class="side-foot">
       <div class="side-user"><svg class="ico"><use href="#i-users"/></svg><span id="hUser">–</span></div>
       <div class="side-acts">
         <button class="act ghost mini" id="themeBtn" onclick="toggleTheme()"></button>
-        <button class="act ghost mini" onclick="logout()"><svg class="ico"><use href="#i-logout"/></svg>退出</button>
+        <button class="act ghost mini" onclick="logout()"><svg class="ico"><use href="#i-logout"/></svg>退出登录</button>
       </div>
     </div>
   </aside>
@@ -107,10 +108,10 @@
         <span class="pill" id="hPill"><svg class="ico"><use href="#i-pulse"/></svg>…</span>
       </div>
       <button class="act ghost mini" onclick="runAction('panel.restart',{})"
-              title="仅重启本面板，数秒后自动恢复，刷新页面即可">
+              title="重启 N1bus 面板服务；连接会短暂中断，数秒后刷新本页即可">
         <svg class="ico"><use href="#i-restart"/></svg>重启面板</button>
       <button class="act ghost mini" onclick="runAction('system.reboot',{})"
-              title="重启整台机器，会断开所有连接与 KMS 服务">
+              title="重启整台托管机；会断开面板、SSH 与全部容器">
         <svg class="ico"><use href="#i-alert"/></svg>重启服务器</button>
       <button class="act ghost mini" onclick="refreshNow(this)"><svg class="ico"><use href="#i-refresh"/></svg>刷新</button>
     </div>
@@ -121,7 +122,7 @@
     <div class="ov-wrap">
       <div class="ov-main">
         <div class="panel">
-          <h2>状态<span class="q">实时采样</span><span class="end" id="ovUptime">–</span></h2>
+          <h2>资源状态<span class="q">每 2 秒采样</span><span class="end" id="ovUptime">…</span></h2>
           <div class="ov-rings">
             <div class="ring">
               <svg viewBox="0 0 100 100"><circle class="rt" cx="50" cy="50" r="42"/>
@@ -138,7 +139,7 @@
             <div class="ring">
               <svg viewBox="0 0 100 100"><circle class="rt" cx="50" cy="50" r="42"/>
                 <circle class="rv" id="ringDisk" cx="50" cy="50" r="42"/></svg>
-              <div class="rv-t"><b id="ovDisk">–</b><span>根分区</span></div>
+              <div class="rv-t"><b id="ovDisk">–</b><span>最大分区</span></div>
               <em id="ovDiskSub">–</em>
             </div>
             <div class="ring">
@@ -151,19 +152,19 @@
         </div>
 
         <div class="panel">
-          <h2>概览</h2>
+          <h2>系统计数</h2>
           <div class="ov-stats">
             <div class="ov-stat"><span class="k">服务</span><b id="stSvc">–</b><em id="stSvcSub">–</em></div>
             <div class="ov-stat"><span class="k">容器</span><b id="stDk">–</b><em id="stDkSub">运行中 / 全部</em></div>
             <div class="ov-stat"><span class="k">进程</span><b id="stProc">–</b><em id="stProcSub">–</em></div>
-            <div class="ov-stat"><span class="k">失败尝试</span><b id="stFail">–</b><em id="stFailSub">–</em></div>
+            <div class="ov-stat"><span class="k">SSH 登录失败</span><b id="stFail">–</b><em id="stFailSub">–</em></div>
           </div>
         </div>
 
         <div class="panel">
-          <h2>监控
-            <span class="q">CPU 与网络 · 实时</span>
-            <span class="end" id="ovSparkLegend">–</span></h2>
+          <h2>CPU 与网络趋势
+            <span class="q">最近约 3 分钟 · 每 2 秒</span>
+            <span class="end" id="ovSparkLegend">…</span></h2>
           <svg class="spark" id="ovSpark" viewBox="0 0 600 60" preserveAspectRatio="none">
             <defs>
               <linearGradient id="gCpu" x1="0" y1="0" x2="0" y2="1">
@@ -191,8 +192,8 @@
           <summary>磁盘明细</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>挂载点</th><th>设备</th><th class="num">已用</th>
-              <th class="num">总量</th><th class="num">可用</th><th class="num">占比</th>
-              <th class="num">inode</th></tr></thead><tbody id="ovDiskList"></tbody></table></div>
+              <th class="num">总量</th><th class="num">可用</th><th class="num">已用占比</th>
+              <th class="num">inode 占用</th></tr></thead><tbody id="ovDiskList"></tbody></table></div>
           </div>
         </details>
 
@@ -202,10 +203,10 @@
         </details>
 
         <details class="fold" open>
-          <summary>失败尝试来源</summary>
+          <summary>SSH 失败来源</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>来源 IP</th><th class="num">失败次数</th>
-              <th class="num">占比</th></tr></thead><tbody id="ovSec"></tbody></table></div>
+              <th class="num">相对量</th></tr></thead><tbody id="ovSec"></tbody></table></div>
           </div>
         </details>
       </div>
@@ -241,15 +242,15 @@
           <svg class="ico"><use href="#i-refresh"/></svg>刷新商店</button>
         <span class="hint" id="stStoreHint"></span>
       </div>
-      <div class="scroll"><table><thead><tr><th>模块</th><th>说明</th><th>最新</th>
+      <div class="scroll"><table><thead><tr><th>模块</th><th>说明</th><th>最新版本</th>
         <th class="num">操作</th></tr></thead><tbody id="stStoreBody"></tbody></table></div>
     </div>
     <div class="panel glass">
       <h2><svg class="ico"><use href="#i-plug"/></svg>已安装
         <span class="end" id="stInstMeta">–</span></h2>
-      <div class="hint gap-sm">模块装在 <code class="mono" id="stModDir">/opt/n1bus/modules</code>；
-        卸载会先摘掉容器再删目录，<b>数据卷保留</b>。</div>
-      <div class="scroll"><table><thead><tr><th>模块</th><th>版本</th><th>页面</th>
+      <div class="hint gap-sm">模块安装于 <code class="mono" id="stModDir">/opt/n1bus/modules</code>；
+        卸载会先移除容器再删除模块目录，<b>数据卷保留</b>。</div>
+      <div class="scroll"><table><thead><tr><th>模块</th><th>版本</th><th>页面地址</th>
         <th class="num">操作</th></tr></thead><tbody id="stInstBody"></tbody></table></div>
     </div>
   </div>
@@ -263,7 +264,7 @@
     <div class="subnav glass" id="subnav-runtime">
       <button data-sub="services" class="active"><svg class="ico"><use href="#i-server"/></svg>服务</button>
       <button data-sub="docker"><svg class="ico"><use href="#i-box"/></svg>Docker 容器</button>
-      <button data-sub="net"><svg class="ico"><use href="#i-plug"/></svg>端口 · 进程</button>
+      <button data-sub="net"><svg class="ico"><use href="#i-plug"/></svg>端口 · 连接 · 进程</button>
     </div>
 
   <div class="subview" id="sub-services">
@@ -271,16 +272,16 @@
       <h2><svg class="ico"><use href="#i-server"/></svg>systemd 服务
         <span class="end" id="svcMeta"></span></h2>
       <div class="toolbar">
-        <input id="svcQ" type="text" placeholder="过滤单元名或描述" oninput="filterUnits()">
+        <input id="svcQ" type="text" placeholder="按服务名或描述过滤" oninput="filterUnits()">
         <select id="svcOnly" onchange="filterUnits()">
-          <option value="">全部</option><option value="active">只看运行中</option>
-          <option value="failed">只看失败</option>
+          <option value="">全部</option><option value="active">只看 active</option>
+          <option value="failed">只看 failed</option>
         </select>
         <button class="act ghost" onclick="restartFailedUnits()">
-          <svg class="ico"><use href="#i-restart"/></svg>重启全部失败单元</button>
+          <svg class="ico"><use href="#i-restart"/></svg>重启全部失败服务</button>
         <span class="hint" id="svcFailedHint"></span>
       </div>
-      <div class="scroll"><table><thead><tr><th>单元</th><th>状态</th><th>说明</th>
+      <div class="scroll"><table><thead><tr><th>服务</th><th>运行状态</th><th>描述</th>
         <th class="num">操作</th></tr></thead><tbody id="svcBody"></tbody></table></div>
     </div>
     <div class="panel glass hidden" id="svcPanel">
@@ -312,7 +313,7 @@
           <span class="end" id="dkImagesMeta"></span></summary>
         <div class="foldbody">
           <div class="scroll h-260"><table><thead><tr><th>仓库</th><th>标签</th><th>ID</th>
-            <th class="num">大小</th><th>创建</th><th>状态</th></tr></thead><tbody id="dkImages"></tbody></table></div>
+            <th class="num">大小</th><th>创建于</th><th>标签状态</th></tr></thead><tbody id="dkImages"></tbody></table></div>
         </div>
       </details>
     </div>
@@ -330,13 +331,13 @@
           <svg class="ico"><use href="#i-x-circle"/></svg>删除容器</button>
       </div>
       <div class="toolbar">
-        <input id="dkSince" type="text" placeholder="--since 30m / 2h / 1d" style="width:175px">
-        <input id="dkUntil" type="text" placeholder="--until（可空）" style="width:150px">
-        <input id="dkGrep" type="text" placeholder="关键字过滤" style="width:150px">
+        <input id="dkSince" type="text" placeholder="起始时间（--since），如 30m" style="width:175px">
+        <input id="dkUntil" type="text" placeholder="结束时间（--until），可留空" style="width:150px">
+        <input id="dkGrep" type="text" placeholder="按关键字过滤" style="width:150px">
         <input id="dkLines" type="number" value="200" min="1" max="5000" title="--tail 行数"
                style="width:96px">
-        <label class="chk"><input type="checkbox" id="dkTs">时间戳</label>
-        <button class="act" onclick="reloadDockerLogs()"><svg class="ico"><use href="#i-search"/></svg>应用</button>
+        <label class="chk"><input type="checkbox" id="dkTs">显示时间戳</label>
+        <button class="act" onclick="reloadDockerLogs()"><svg class="ico"><use href="#i-search"/></svg>应用过滤</button>
       </div>
       <details class="fold gap-sm">
         <summary><svg class="ico"><use href="#i-file"/></svg>日志正文</summary>
@@ -347,11 +348,11 @@
 
   <div class="subview hidden" id="sub-net">
     <div class="panel glass">
-      <h2><svg class="ico"><use href="#i-plug"/></svg>监听端口
-        <span class="q">对外 = 非回环地址绑定</span>
-        <span class="end" id="ptMeta"></span></h2>
-      <div class="scroll h-320"><table><thead><tr><th>协议</th><th>监听</th><th>端口</th>
-        <th>进程</th><th>PID</th><th>范围</th></tr></thead><tbody id="ptBody"></tbody></table></div>
+          <h2><svg class="ico"><use href="#i-plug"/></svg>监听端口
+            <span class="q">对外：绑定在非回环地址</span>
+            <span class="end" id="ptMeta"></span></h2>
+      <div class="scroll h-320"><table><thead><tr><th>协议</th><th>监听地址</th><th>端口</th>
+        <th>进程</th><th>PID</th><th>可达范围</th></tr></thead><tbody id="ptBody"></tbody></table></div>
     </div>
     <details class="fold">
         <summary><svg class="ico"><use href="#i-net"/></svg>已建立连接
@@ -367,7 +368,7 @@
       <div class="foldbody">
         <div class="toolbar">
           <select id="prBy" onchange="loadProcesses()">
-            <option value="cpu">按 CPU</option><option value="mem">按内存</option>
+            <option value="cpu">按 CPU 排序</option><option value="mem">按内存排序</option>
           </select>
         </div>
         <div class="scroll"><table><thead><tr><th>PID</th><th>用户</th><th class="num">CPU%</th><th class="num">内存%</th>
@@ -382,17 +383,17 @@
   <section id="tab-security" class="hidden">
     <div class="subnav glass" id="subnav-security">
       <button data-sub="guard" class="active"><svg class="ico"><use href="#i-shield"/></svg>防护</button>
-      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>失败尝试</button>
+      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>失败来源</button>
       <button data-sub="svcstate"><svg class="ico"><use href="#i-server"/></svg>服务状态</button>
     </div>
 
     <!-- 这四个统计跨子标签共用，置于子导航下方共享，避免重复渲染三遍 -->
     <div class="grid g4" style="margin-bottom:var(--gap)">
-      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-ban"/></svg>失败尝试</div>
-        <div class="v" id="seFailed">–</div><div class="n">auth.log 累计失败</div></div>
-      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-check"/></svg>登录成功</div>
-        <div class="v" id="seOk">–</div><div class="n">auth.log 累计成功</div></div>
-      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-shield"/></svg>防火墙</div>
+      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-ban"/></svg>SSH 登录失败</div>
+        <div class="v" id="seFailed">–</div><div class="n">auth.log 全量统计</div></div>
+      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-check"/></svg>SSH 登录成功</div>
+        <div class="v" id="seOk">–</div><div class="n">auth.log 全量统计</div></div>
+      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-shield"/></svg>防火墙（ufw）</div>
         <div class="v" style="font-size:16px" id="seUfwV">–</div><div class="n" id="seUfwN">–</div></div>
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-alert"/></svg>fail2ban</div>
         <div class="v" style="font-size:16px" id="seF2bV">–</div><div class="n" id="seF2bN">–</div></div>
@@ -423,13 +424,13 @@
             <option value="tcp">TCP</option>
             <option value="udp">UDP</option>
           </select>
-          <button class="act mini" onclick="portAllow()">开放端口</button>
+          <button class="act mini" onclick="portAllow()">放行端口</button>
         </div>
         <div id="sePortTips"></div>
         <h2><svg class="ico"><use href="#i-shield"/></svg>入站已放行
           <span class="q" id="sePortInMeta"></span></h2>
         <div class="scroll" style="max-height:240px"><table><thead><tr>
-          <th>端口</th><th>协议</th><th>来源</th><th>IPv6</th><th>本机服务</th>
+          <th>端口</th><th>协议</th><th>来源范围</th><th>IPv6</th><th>本机服务</th>
           <th class="num">处置</th></tr></thead><tbody id="sePortIn"></tbody></table></div>
         <h2><svg class="ico"><use href="#i-net"/></svg>出站已放行
           <span class="q" id="sePortOutMeta"></span></h2>
@@ -445,11 +446,11 @@
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-shield"/></svg>自动永久封禁
+      <summary><svg class="ico"><use href="#i-shield"/></svg>累计失败自动封禁
         <span class="end" id="seDefMeta"></span></summary>
       <div class="foldbody">
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
-          <label class="chk"><input type="checkbox" id="seDefOn" onchange="defenderSet()">启用</label>
+          <label class="chk"><input type="checkbox" id="seDefOn" onchange="defenderSet()">启用自动封禁</label>
           <span class="hint" style="margin-left:12px">累计失败次数超过</span>
           <input id="seDefTh" type="number" min="3" max="100000" style="width:92px"
                  onchange="defenderSet()">
@@ -458,14 +459,14 @@
           <button class="act mini" onclick="defenderRun()">立即执行一轮</button>
         </div>
         <div class="kv wide" id="seDefInfo"></div>
-        <h2><svg class="ico"><use href="#i-ban"/></svg>待封禁来源
+        <h2><svg class="ico"><use href="#i-ban"/></svg>本轮将封禁
           <span class="q" id="seDefPendMeta"></span></h2>
         <div class="scroll" style="max-height:220px"><table><thead><tr>
           <th>来源 IP</th><th class="num">累计失败</th><th class="num">处置</th>
           </tr></thead><tbody id="seDefPend"></tbody></table></div>
         <h2><svg class="ico"><use href="#i-list"/></svg>处置记录</h2>
         <div class="scroll" style="max-height:200px"><table><thead><tr>
-          <th>时间</th><th>来源</th><th class="num">次数</th><th>结果</th>
+          <th>时间</th><th>来源 IP</th><th class="num">累计失败</th><th>结果</th>
           </tr></thead><tbody id="seDefLog"></tbody></table></div>
         <h2><svg class="ico"><use href="#i-check"/></svg>豁免名单
           <span class="q">在此解封过的地址会自动加入，不再被自动封禁</span></h2>
@@ -476,7 +477,7 @@
 
   <div class="subview hidden" id="sub-faillog">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-ban"/></svg>失败来源排行
+      <summary><svg class="ico"><use href="#i-ban"/></svg>失败来源 IP 排行
         <span class="end" id="seIPsMeta"></span></summary>
       <div class="foldbody">
         <div class="row" style="margin-bottom:8px">
@@ -493,22 +494,22 @@
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-users"/></svg>被猜用户名</summary>
+      <summary><svg class="ico"><use href="#i-users"/></svg>被尝试的用户名</summary>
       <div class="foldbody">
-        <div class="scroll"><table><thead><tr><th>用户名</th><th class="num">次数</th>
+        <div class="scroll"><table><thead><tr><th>用户名</th><th class="num">尝试次数</th>
           </tr></thead><tbody id="seUsers"></tbody></table></div>
       </div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-alert"/></svg>登录明细
+      <summary><svg class="ico"><use href="#i-alert"/></svg>登录记录明细
         <span class="end" id="seRecentMeta"></span></summary>
       <div class="foldbody">
         <h2><svg class="ico"><use href="#i-alert"/></svg>最近失败</h2>
-        <div class="scroll" style="max-height:230px"><table><thead><tr><th>时间</th><th>用户</th><th>来源</th>
+        <div class="scroll" style="max-height:230px"><table><thead><tr><th>时间</th><th>用户</th><th>来源 IP</th>
           </tr></thead><tbody id="seRecent"></tbody></table></div>
         <h2><svg class="ico"><use href="#i-check-circle"/></svg>最近成功</h2>
-        <div class="scroll" style="max-height:174px"><table><thead><tr><th>时间</th><th>用户</th><th>来源</th>
+        <div class="scroll" style="max-height:174px"><table><thead><tr><th>时间</th><th>用户</th><th>来源 IP</th>
           </tr></thead><tbody id="seOkBody"></tbody></table></div>
       </div>
     </details>
@@ -516,12 +517,12 @@
 
   <div class="subview hidden" id="sub-svcstate">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-shield"/></svg>SSH 配置</summary>
+      <summary><svg class="ico"><use href="#i-shield"/></svg>SSH 身份认证配置</summary>
       <div class="foldbody"><div class="kv wide" id="seSshd"></div></div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-alert"/></svg>fail2ban 状态
+      <summary><svg class="ico"><use href="#i-alert"/></svg>fail2ban 策略状态
         <span class="end" id="seF2bMeta"></span></summary>
       <div class="foldbody">
         <div class="kv wide" id="seF2bInfo"></div>
@@ -590,34 +591,34 @@
   <!-- 系统：清理 / 网络 / 磁盘，全部只读或 dry-run -->
   <section id="tab-system" class="hidden">
     <div class="subnav glass" id="subnav-system">
-      <button data-sub="maintain" class="active"><svg class="ico"><use href="#i-disk"/></svg>维护</button>
+      <button data-sub="maintain" class="active"><svg class="ico"><use href="#i-disk"/></svg>清理与备份</button>
       <button data-sub="netstore"><svg class="ico"><use href="#i-net"/></svg>网络与存储</button>
-      <button data-sub="syscfg"><svg class="ico"><use href="#i-clock"/></svg>系统配置</button>
+      <button data-sub="syscfg"><svg class="ico"><use href="#i-clock"/></svg>启动与设置</button>
     </div>
 
   <div class="subview" id="sub-maintain">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-disk"/></svg>系统清理
+      <summary><svg class="ico"><use href="#i-disk"/></svg>磁盘空间回收
         <span class="end" id="sysCleanMeta"></span></summary>
       <div class="foldbody">
-        <div class="scroll"><table><thead><tr><th>项目</th><th class="num">当前占用</th>
-          <th class="num">可回收</th><th>说明</th><th class="num">操作</th></tr></thead>
+        <div class="scroll"><table><thead><tr><th>清理项</th><th class="num">当前占用</th>
+          <th class="num">可回收</th><th>清理范围</th><th class="num">操作</th></tr></thead>
           <tbody id="sysCleanBody"></tbody></table></div>
         <div id="sysAutoremove" class="gap-md"></div>
       </div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-file"/></svg>备份与恢复
+      <summary><svg class="ico"><use href="#i-file"/></svg>备份打包与下载
         <span class="end" id="sysBkMeta"></span></summary>
       <div class="foldbody">
-        <div class="scroll"><table><thead><tr><th>内容</th>
+        <div class="scroll"><table><thead><tr><th>备份项</th>
           <th class="num">大小</th></tr></thead><tbody id="sysBkBody"></tbody></table></div>
         <div class="row gap-md">
           <button class="act" onclick="runAction('backup.create',{})">
-            <svg class="ico"><use href="#i-check"/></svg>立即打包</button>
+            <svg class="ico"><use href="#i-check"/></svg>生成备份包</button>
           <button class="act ghost" onclick="downloadBackup()">
-            <svg class="ico"><use href="#i-file"/></svg>下载备份包</button>
+            <svg class="ico"><use href="#i-file"/></svg>下载 latest.tar.gz</button>
         </div>
         <div class="hint gap-sm" id="sysBkHint"></div>
       </div>
@@ -627,12 +628,12 @@
   <div class="subview hidden" id="sub-netstore">
     <!-- 「磁盘与挂载」原先在页面最末，归到「网络与存储」这一组更合理，所以前移到这里 -->
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-disk"/></svg>磁盘与挂载</summary>
+      <summary><svg class="ico"><use href="#i-disk"/></svg>磁盘与挂载（只读）</summary>
       <div class="foldbody" id="sysDiskBody"></div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-net"/></svg>网络</summary>
+      <summary><svg class="ico"><use href="#i-net"/></svg>网络（只读）</summary>
       <div class="foldbody" id="sysNetBody"></div>
     </details>
   </div>
@@ -642,26 +643,27 @@
       <summary><svg class="ico"><use href="#i-play"/></svg>开机自启
         <span class="end" id="sysBootMeta"></span></summary>
       <div class="foldbody">
-        <div class="scroll h-320"><table><thead><tr><th>单元</th><th>状态</th>
+        <div class="scroll h-320"><table><thead><tr><th>systemd 单元</th><th>运行状态</th>
           <th>开机自启</th><th class="num">操作</th></tr></thead><tbody id="sysBootBody"></tbody></table></div>
-        <h2 class="gap-lg">容器</h2>
+        <h2 class="gap-lg">Docker 容器</h2>
         <div class="scroll" style="max-height:146px"><table><thead><tr><th>容器</th>
-          <th>restart policy</th><th>开机自启</th><th class="num">操作</th></tr></thead>
+          <th>重启策略</th><th>开机自启</th><th class="num">操作</th></tr></thead>
           <tbody id="sysBootDk"></tbody></table></div>
       </div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-clock"/></svg>系统设置
+      <summary><svg class="ico"><use href="#i-clock"/></svg>时间与时区
         <span class="end" id="sysSetMeta"></span></summary>
       <div class="foldbody">
         <div id="sysSetBody"></div>
         <div class="row gap-md">
+          <span class="hint">时区</span>
           <input id="sysTz" type="text" placeholder="Asia/Shanghai" class="w-190">
           <button class="act" onclick="saveTimezone()">
-            <svg class="ico"><use href="#i-check"/></svg>保存时区</button>
-          <button class="act ghost" onclick="runAction('time.ntp',{on:true})">开启 NTP</button>
-          <button class="act ghost" onclick="runAction('time.ntp',{on:false})">关闭 NTP</button>
+            <svg class="ico"><use href="#i-check"/></svg>设置时区</button>
+          <button class="act ghost" onclick="runAction('time.ntp',{on:true})">开启自动校时</button>
+          <button class="act ghost" onclick="runAction('time.ntp',{on:false})">关闭自动校时</button>
         </div>
         <div class="hint gap-sm" id="sysSetHint"></div>
       </div>
@@ -673,7 +675,7 @@
   <section id="tab-files" class="hidden">
     <div class="panel glass">
       <div class="fm-bar">
-        <select id="fmRoot" onchange="fmGotoRoot(this.value)" title="跳到某个白名单根"></select>
+        <select id="fmRoot" onchange="fmGotoRoot(this.value)" title="跳转到允许管理的目录"></select>
         <input id="fmPath" class="mono" placeholder="绝对路径，回车前往" onkeydown="fmKey(event)">
         <button class="act" onclick="fmGo()"><svg class="ico"><use href="#i-search"/></svg>前往</button>
         <button class="act ghost" onclick="fmUp()">↑ 上一级</button>
@@ -689,7 +691,7 @@
         <span class="hint" id="fmMeta"></span>
       </div>
       <div class="hint gap-xs" id="fmHint">
-        只能在这几个目录里操作（realpath 之后仍在根内）：<span id="fmRoots" class="mono"></span>
+        只能在下列目录内读写（越界路径会被拒绝）：<span id="fmRoots" class="mono"></span>
       </div>
       <div class="hint gap-xs" id="fmWriteHint" style="opacity:.8"></div>
     </div>
@@ -720,10 +722,10 @@
   <!-- 计划任务：面板内的调度器，只跑白名单动作 -->
   <section id="tab-tasks" class="hidden">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-clock"/></svg>任务
+      <summary><svg class="ico"><use href="#i-clock"/></svg>计划任务（面板内调度）
         <span class="end" id="mtMeta"></span></summary>
       <div class="foldbody">
-        <div class="scroll"><table><thead><tr><th>动作</th><th>参数</th><th class="num">周期</th>
+        <div class="scroll"><table><thead><tr><th>白名单动作</th><th>参数（JSON）</th><th class="num">周期</th>
           <th>上次执行</th><th>结果</th><th class="num">操作</th></tr></thead>
           <tbody id="mtBody"></tbody></table></div>
 
@@ -734,13 +736,13 @@
                  placeholder="周期（秒）">
           <span id="mtInputs" class="row"></span>
           <button class="act" onclick="addTask()">
-            <svg class="ico"><use href="#i-check"/></svg>添加</button>
+            <svg class="ico"><use href="#i-check"/></svg>添加任务</button>
         </div>
         <div class="hint gap-xs" id="mtHint"></div>
 
         <h2 style="margin-top:16px">最近执行</h2>
         <div class="scroll h-210"><table><thead><tr><th>时间</th>
-          <th>动作</th><th>结果</th></tr></thead><tbody id="mtRecent"></tbody></table></div>
+          <th>白名单动作</th><th>结果</th></tr></thead><tbody id="mtRecent"></tbody></table></div>
       </div>
     </details>
   </section>
@@ -760,22 +762,22 @@
           <span class="hint">修改其他账户的密码，使用对应行内的「修改密码」</span>
         </div>
         <div class="scroll" style="max-height:286px"><table>
-          <thead><tr><th>用户名</th><th>创建于</th><th>上次登录</th><th class="num">会话</th>
+          <thead><tr><th>用户名</th><th>创建于</th><th>上次登录</th><th class="num">会话数</th>
             <th class="num">操作</th></tr></thead>
           <tbody id="acBody"></tbody></table></div>
       </div>
     </details>
 
     <details class="fold">
-      <summary><svg class="ico"><use href="#i-logout"/></svg>会话与服务 token</summary>
+      <summary><svg class="ico"><use href="#i-logout"/></svg>会话</summary>
       <div class="foldbody">
         <div class="row">
           <button class="act ghost" onclick="logoutAll()">
-            <svg class="ico"><use href="#i-logout"/></svg>退出本账户的全部会话</button>
+            <svg class="ico"><use href="#i-logout"/></svg>退出我的全部会话</button>
         </div>
         <div class="hint gap-sm">
-          服务 token（<code class="mono">/var/lib/n1bus/n1bus.token</code>）供脚本调用，不随账户失效；
-          更换后需 <code class="mono">systemctl restart n1bus</code>。
+          服务 token（<code class="mono">/var/lib/n1bus/n1bus.token</code>）供脚本调用 API 使用，
+          不随账户失效；轮换需在服务器上操作，并 <code class="mono">systemctl restart n1bus</code>。
         </div>
       </div>
     </details>
@@ -788,7 +790,7 @@
           <label class="chk"><input id="alEnabled" type="checkbox">启用告警</label>
           <input id="alWebhook" type="text" placeholder="https://example.com/hook"
                  style="width:320px">
-          <span class="hint">冷却（分钟）</span>
+          <span class="hint">重复发送间隔（分钟）</span>
           <input id="alCooldown" type="number" min="1" value="30" style="width:90px">
         </div>
         <div class="row gap-sm">
@@ -796,13 +798,13 @@
           <span class="hint">内存 %</span><input id="alMem" type="number" value="92" class="w-80">
           <span class="hint">每核负载</span>
           <input id="alLoad" type="number" step="0.1" value="2" class="w-80">
-          <span class="hint">失败单元</span>
+          <span class="hint">systemd 失败单元</span>
           <input id="alFailed" type="number" value="1" class="w-80">
         </div>
         <div class="row gap-sm">
           <button class="act" onclick="saveAlerts()">
             <svg class="ico"><use href="#i-check"/></svg>保存</button>
-          <button class="act ghost" onclick="testAlert()">发一条测试告警</button>
+          <button class="act ghost" onclick="testAlert()">发送测试告警</button>
         </div>
         <div class="hint gap-sm" id="alHint"></div>
         <div class="scroll" style="max-height:202px;margin-top:12px"><table><thead><tr>
