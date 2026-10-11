@@ -233,8 +233,8 @@ button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);bac
 button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
 /* 模块页面：模块自己的 UI 以同源 iframe 嵌入（本体不代理它的流量，也不替它认证）。
-   这里用确定的 calc 高度而不是父级 flex/百分比 —— 与 #dshFrame 那边同样的理由：
-   移动端的 flex 链给不出「确定高度」，百分比会退化成 auto，iframe 就只剩 min-height。 */
+   用确定的 calc 高度而不是父级 flex/百分比：移动端的 flex 链给不出「确定高度」，
+   百分比会退化成 auto，iframe 就只剩 min-height（实测手机端仅 340×360）。 */
 .mod-frame{display:block;width:100%;height:calc(100vh - 240px);min-height:360px;
   border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .mod-frame + .hint{margin-top:8px}
