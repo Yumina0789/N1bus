@@ -1,47 +1,30 @@
 # 模块规范（Modules）
 
-> **状态：框架已实现（2026-10-11）—— KMS / Harness 搬出本体尚未做**
+> **状态：已实现并上线（2026-10-11）**
 >
-> 已经落地的部分：
+> 落地的东西：
 >
 > * `n1bus_modules.py` —— 商店清单、manifest 与模块包的校验、防穿越解包、安装与卸载；
-> * 五个受控动作 `module.install` / `.start` / `.stop` / `.restart` / `.down`；
+> * 五个受控动作 `module.install` / `.start` / `.stop` / `.restart` / `.down`
+>   （`module.install` 对没有 compose 的模块退化成 `up -d`）；
 > * 四个端点 `/api/modules`、`/api/modules/store`、`/api/modules/install`、
->   `/api/modules/uninstall`；
-> * 扩展功能页：空列表 + 「添加模块」→ 商店 → 逐个装卸，装上即出现子标签（iframe 页面）。
+>   `/api/modules/uninstall`，外加 `/api/modules/entry`（动态入口）；
+> * **装 / 卸模块时自动重写 Caddy 路由并热重载**，页面「装上即出现」；
+> * 模块页：列表 + 「模块商店」+ 逐个装卸，装上即出现子标签（iframe 页面）；
+> * registry 仓库 [`Yumina0789/N1bus-modules`](https://github.com/Yumina0789/N1bus-modules)
+>   已建好并启用 Pages，里面是 **`rsc4d`** 与 **`harness`** 两个模块。
 >
-> 还没做：
->
-> * **KMS 与 Harness 的模块包** —— 原先写死在扩展页的两个子视图已于 2026-10 移除
->   （`n1bus_kms.py` 删除、`/api/kms*` 下线），但它们还没打包装进商店，要等
->   `Yumina0789/N1bus-modules` 仓库建好。在那之前扩展页是**空的**（期望的初始状态）。
-> * 升级、模块间依赖、registry 签名（见 §10）。
->
-> **2026-10-11 用户确认的五条形态**（覆盖本文件早先的写法）：
->
-> 1. **没有「接入」这一步** —— 模块**装上即出现在扩展功能页**，只有「装 / 卸」两态。
->    早先「装与接分离、由一个开关控制显不显示」的设计作废。
-> 2. **商店是 `Yumina0789/N1bus-modules` 仓库的 GitHub Pages 静态站** —— 不在本体里；
->    本体只负责从它拉取与安装，只有仓库所有者能上传功能。
-> 3. **只留 iframe 页面** —— 模块自带页面，本体只负责嵌。早先那套「声明式页面块」
->    （`status` / `kv` / `table` / `log` / `actions` / `aggregate`）**整体作废**。
-> 4. 扩展功能页**初始为空列表**，点**加号**进商店，逐个安装 / 卸载，各自独立。
-> 5. 规划的模块是 **RSC4D** 与 **harness**。
->
-> 取代早先的 `docs/extensions.md`（该文件使用「扩展」一词，术语已废弃）。
-> 相关决策：ADR 0002（不做任意命令执行）、ADR 0009（写权限收敛到白名单根）、
-> ADR 0012（本体模块化）。
+> 还没做：模块升级、模块间依赖、registry 签名（见 §10）。
 
 ---
 
 ## 1. 它解决什么
 
-面板现在把 KMS 与 Harness **硬编码**在本体里（`tab-ext` 下就这两个子视图）。每加一个功能
-都要改本体源码（写这份规格时是 `n1bus.py`；模块化重构后是 `n1bus_*.py` 里对应的域文件）
-与 `ui.html` 两处、重新部署一遍。
+面板一开始把 KMS 与 Harness **硬编码**在本体里（`tab-ext` 下就这两个子视图）。每加一个
+功能都要改本体源码与 `ui.html` 两处、重新部署一遍。
 
 **模块**把这层变成数据：功能以一份清单描述，从受信任的商店拉取、校验、安装，
-**装上即出现在扩展功能页** —— 加功能不再需要动本体源码。
+**装上即出现在模块页** —— 加功能不再需要动本体源码。
 
 ---
 
@@ -49,35 +32,33 @@
 
 | 词 | 指什么 | **不指**什么 |
 |---|---|---|
-| **本体（core）** | N1bus 自己：认证与安全底线、观测、白名单动作、文件管理、任务、告警、审计，**加上模块框架** | 不是模块；目标形态下**不**包含 KMS/Harness（它们要搬出去） |
+| **本体（core）** | N1bus 自己：认证与安全底线、观测、白名单动作、文件管理、任务、告警、审计，**加上模块框架** | 不是模块；**不**包含 KMS / Harness，它们已经是模块 |
 | **模块（module）** | 一个可安装的功能单元：manifest + 可选 compose + **一个自己的页面**。**它的逻辑全在自己进程里** | 不是 DSH 插件（那是 `@deepseek-ai/dsh` 的插件，另一层） |
 | **模块包（package）** | 模块打成的单个 `.tar.gz`，整体 sha256 即身份 | 不是 git 快照 —— 只认归档，不认「拉某个分支 HEAD」 |
 | **registry** | 模块清单与包的发布仓库：`Yumina0789/N1bus-modules` | 不是 PyPI/npm，不做依赖解析 |
 | **商店（store）** | 上面那个仓库的 **GitHub Pages 静态站**；本体从它取清单与包 | 不在本体里；也不是应用市场 —— 只有受信任的那一个 registry |
 | **模块动作（module.\*）** | 本体为模块新增的受控白名单动作 | 不是模块自带的命令 |
 
-> 已删除的两个词：**接入（attach）**、**页面块（block）** —— 见文件顶部第 1、3 条。
+> 已删除的词：**接入（attach）**、**页面块（block）**、**扩展（extension）**。
 
 ---
 
 ## 3. 本体与模块的边界
 
-**留本体**（用户明确要求：除 kms 与 harness 之外，面板应有的功能全部保留）：
+**留本体**：
 
 - 认证与会话、服务 token、来源限制 —— 模块碰不到
 - systemd / docker / ufw 的观测与 `ACTIONS` 白名单动作
 - 文件管理器、任务、告警、审计
-- **模块框架**（见 §6）
+- **模块框架**（§6）
 
-**已经搬出去**（2026-10，写死的两个视图连同后端一起删了；**尚未打包**）：
+**已经搬出去**（2026-10，写死的两个视图连同后端一起删了，现在以模块形式回归）：
 
-- KMS 页：`sub-kms` + `loadKms()` + `n1bus_kms.py`（`KMSService` / `KMS_WRITES`）+ `/api/kms*`
-  —— 全套删除。KMS 现在由容器 `rs-c4d` 自己承担，面板不再代取数据
-- Harness 页：`sub-harness` + `#dshFrame` + 前端那一整块逻辑 —— 删除；
-  但后端 `/api/dsh` **刻意保留**（将来 `harness` 模块的入口来源，见 §9）
-
-> 搬运量实测：原先 `n1bus.py` 里 6 处分散点、`ui.html` 里约 80 行 JS + 一个子视图，
-> 实际删除时 `ui.js` 掉了 344 行、`n1bus_kms.py` 整个文件（208 行）不再需要。
+- KMS 页：`sub-kms` + `loadKms()` + `n1bus_kms.py` + `/api/kms*` 全套删除。
+  KMS 现在由容器 `rs-c4d` 自己承担，面板不代取数据
+- Harness 页：`sub-harness` + `#dshFrame` + 前端那一整块逻辑删除；
+  后端 `/api/dsh` 也**已下线** —— 它被 `page.entry` 这个通用机制取代（§6），
+  本体不再认识任何具体模块
 
 ---
 
@@ -85,20 +66,26 @@
 
 ```
 N1bus-modules/                    # 仓库 = registry
-├── index.json                    # 商店页与本体的清单来源
+├── index.json                    # 商店与本体读的清单（由 tools/pack.py 回填）
 ├── packages/
-│   ├── rsc4d-1.0.0.tar.gz        # 模块包：整体 sha256 即身份
-│   └── harness-1.0.0.tar.gz
-└── templates/                    # 编写新模块时参考此处
+│   ├── rsc4d-1.0.1.tar.gz        # 模块包：整体 sha256 即身份
+│   └── harness-1.0.1.tar.gz
+├── src/<id>/                     # 模块源文件（人在这里改）
+├── templates/                    # 编写新模块时抄这里
+└── tools/pack.py                 # 打包 + 算哈希 + 回填 index.json
 ```
 
-它的 **GitHub Pages 就是商店**：一个静态站，展示可用模块并给出包地址。
+它的 **GitHub Pages 就是商店**：`https://yumina0789.github.io/N1bus-modules/`。
 **安装动作由本体执行**，商店页本身不碰服务器。
 
-- 本体**只认这一个仓库**，**不提供**「填任意仓库 URL」的入口。想加模块 → 往
-  `N1bus-modules` 提 PR。这条路窄，但它是这个功能能存在的前提。
-- **为什么采用归档而非散文件**：sha256 直接对*一个字节序列*计算，无需「目录哈希规范化」
+- 本体**只认这一个仓库**，**不提供**「填任意仓库 URL」的入口（`--store-url` 是安装期
+  的部署选项，不是界面功能）。想加模块 → 往 `N1bus-modules` 提 PR。
+- **为什么用归档而非散文件**：sha256 直接对一个字节序列计算，无需「目录哈希规范化」
   这类易错机制；下载 → 校验 → 解包是一条线性流程。
+- `pack.py` 是**确定性打包**（固定 mtime / uid / gid，gzip 头 mtime 归零）：
+  同样的源打两次得到同样的哈希，否则「哈希即身份」名存实亡。
+- **改了包内容必须升版本号**：覆盖同版本号会让已缓存清单的部署校验失败。
+  下架某个版本同理 —— 缓存还没过期（5 分钟）的部署会拿到 404。
 
 ### index.json
 
@@ -110,15 +97,15 @@ N1bus-modules/                    # 仓库 = registry
     {
       "id": "rsc4d",
       "name": "KMS 激活服务",
-      "summary": "rs-c4d：KMS wire 协议服务端（v4/v5/v6）",
+      "summary": "rs-c4d：KMS wire 协议服务端（v4 / v5 / v6），自带一个状态页",
       "icon": "key",
       "homepage": "https://github.com/Yumina0789/RSC4D",
-      "latest": "1.0.0",
+      "latest": "1.0.1",
       "versions": {
-        "1.0.0": {
-          "url": "packages/rsc4d-1.0.0.tar.gz",
+        "1.0.1": {
+          "url": "packages/rsc4d-1.0.1.tar.gz",
           "sha256": "<64 位十六进制>",
-          "size": 4096,
+          "size": 4243,
           "min_core": "1.0"
         }
       }
@@ -127,20 +114,21 @@ N1bus-modules/                    # 仓库 = registry
 }
 ```
 
-- `sha256` 与 `size` **均为必填**：先比较 size（低成本粗筛），再比较 sha256（权威校验）。
+- `sha256` 与 `size` **均为必填**：先比 size（低成本粗筛），再比 sha256（权威）。
 - `min_core` 用来拒绝「模块要求的本体版本比本机新」。
+- `url` 若是绝对地址，必须落在商店站内 —— 清单不能把本体指到别的主机。
 
 ---
 
 ## 5. 模块包结构
 
-解包后必须**恰好**包含一个 `manifest.json`，可有 `compose.yml`。
+解包后必须**恰好**包含一个 `manifest.json`（且**位于包根**），可带其它文件。
 
 ```
 <解包根>/
 ├── manifest.json        # 必需
-├── compose.yml          # 可选：需要容器栈才有
-└── ...                  # 可选：图标等静态资源（本体不执行其中任何代码）
+├── compose.yml          # 可选：需要容器栈才有；文件名由 manifest 指定
+└── ...                  # 可选：页面、静态资源、模块自己的配置
 ```
 
 ### manifest.json
@@ -150,76 +138,115 @@ N1bus-modules/                    # 仓库 = registry
   "schema": 1,
   "id": "rsc4d",
   "name": "KMS 激活服务",
-  "version": "1.0.0",
-  "summary": "rs-c4d：KMS wire 协议服务端（v4/v5/v6）",
+  "version": "1.0.1",
+  "summary": "rs-c4d：KMS wire 协议服务端（v4 / v5 / v6），自带一个状态页",
   "icon": "key",
   "homepage": "https://github.com/Yumina0789/RSC4D",
 
-  "compose": {
-    "file": "compose.yml",
-    "project": "n1bus-rsc4d",
-    "services": ["rsc4d"]
-  },
+  "compose": {"file": "compose.yml", "project": "n1bus-rsc4d"},
 
   "ports": [
-    {"port": 1688, "proto": "tcp", "expose": true, "note": "KMS 客户端（裸 TCP，不经反代）"}
+    {"port": 1688, "proto": "tcp", "expose": true, "note": "KMS 客户端：裸 TCP"}
   ],
 
   "page": {
     "kind": "iframe",
     "title": "KMS 激活服务",
-    "url": "/m/rsc4d/"
+    "url": "/m/rsc4d/",
+    "upstream": "n1bus-rsc4d-web:80"
   }
 }
 ```
 
-**字段契约**
-
 | 字段 | 必需 | 约束 |
 |---|---|---|
 | `schema` | ✔ | 目前只有 `1`；不认识的值直接拒绝 |
-| `id` | ✔ | `^[a-z][a-z0-9-]{1,31}$`；与 index.json 一致，否则拒绝 |
+| `id` | ✔ | `^[a-z][a-z0-9-]{1,31}$`；与 index.json 一致 |
 | `version` | ✔ | 与 index.json 一致 |
+| `compose.project` | ✖ | 必须等于 `n1bus-<id>` |
+| `compose.file` | ✖ | 包内的简单文件名（不含路径分隔符） |
 | `icon` | ✖ | 必须是本体**已有图标集**里的名字（不加载外部 SVG） |
-| `compose.project` | ✖ | 必须等于 `n1bus-<id>`，本体不信任任意 project 名 |
-| `ports` | ✖ | 仅用于展示与「该端口绕过 ufw」提示；**本体不据此改防火墙** |
+| `ports` | ✖ | 仅用于展示与「该端口绕过 ufw」提示；本体**不据此改防火墙** |
 | `page.kind` | ✔ | **只有 `iframe`** |
-| `page.url` | ✔ | 模块页面的**同源路径**，由 Caddy 路由到模块自己的容器（与现在 `/dsh/` 同一套做法）；本体不代理、不替它认证 |
+| `page.url` | ✔ | 站内绝对路径，如 `/m/<id>/`。字符集卡得很紧，因为它会被写进 Caddy 配置 |
+| `page.upstream` | ✖ | `host:port`。Caddy 把 `page.url` 这个前缀转给谁；没有它就不生成路由 |
+| `page.entry` | ✖ | 入口地址不是固定值时的取法，见 §6 |
 
 ---
 
 ## 6. 本体的模块框架
 
-**核心能力（两项）**：
-
 | # | 能力 | 说明 |
 |---|---|---|
-| 1 | **编排模块的容器** | `module.install` / `.start` / `.stop` / `.restart` —— argv 全由本体拼，路径来自通过校验的 manifest |
-| 2 | **iframe 嵌模块自己的页面** | 同源路径（由 Caddy 路由），本体**不代理**、**不替它认证** |
+| 1 | **编排模块的容器** | `module.install` / `.start` / `.stop` / `.restart` / `.down` —— argv 全由本体拼，路径由本体算成 `/opt/n1bus/modules/<id>/` |
+| 2 | **iframe 嵌模块自己的页面** | 站内路径 `/m/<id>/`，**由 Caddy 转给模块的容器**；本体不代理、不替它认证 |
+| 3 | **维护 Caddy 路由** | 装 / 卸模块后重写路由片段并热重载 |
+| 4 | **取动态入口** | `page.entry`，见下 |
 
-**新增的受控动作**（写死 argv，模块无法影响）：
+### 动作
 
 | 动作 | argv | danger |
 |---|---|---|
-| `module.install` | `docker compose -p n1bus-<id> -f <path>/compose.yml up -d` | ✔ |
-| `module.start` | `docker compose -p n1bus-<id> -f <path>/compose.yml start` | ✖ |
-| `module.stop` | `docker compose -p n1bus-<id> -f <path>/compose.yml stop` | ✔ |
-| `module.restart` | `docker compose -p n1bus-<id> -f <path>/compose.yml restart` | ✔ |
-| `module.down` | `docker compose -p n1bus-<id> -f <path>/compose.yml down` | ✔ |
+| `module.install` | `docker compose -p n1bus-<id> -f <path>/<file> up -d` | ✔ |
+| `module.start` | … `start` | ✖ |
+| `module.stop` | … `stop` | ✔ |
+| `module.restart` | … `restart` | ✔ |
+| `module.down` | … `down` | ✔ |
 
-`<id>` 只来自**通过校验的 manifest**；`<path>` 由本体算成 `/opt/n1bus/modules/<id>`，
-**不接受 manifest 里的路径**。
+`<id>` 只来自**通过校验的 manifest**；`<path>` 由本体算，**不接受 manifest 里的路径**。
 
 `module.down` 只用于**卸载**：`-f <path>` 指着模块目录，目录一删就再也操作不了那套容器了，
 所以必须先摘容器。它**保留数据卷**（不带 `-v`）。
 
-**两项待确认的辅助能力**：早先的「读模块容器日志」与「代理模块的 HTTP API」原本是给
-**声明式页面块**供数的。既然只留 iframe（第 3 条），这两项是否还需要：
+### Caddy 路由怎么接上
 
-- **读容器日志**：仍有用 —— 模块出问题时面板上能直接看它的日志排障；
-- **代理 HTTP API**：多半不再需要，模块自己的页面可以直接调自己的后端。
+本体把已装模块的路由渲染成一份片段，写到
+`<caddy-sites>/modules/routes.caddy`，整份覆盖：
 
-倾向是**保留读日志、去掉 API 代理**，待实现时确认。
+```caddy
+handle_path /m/rsc4d/* {
+	reverse_proxy n1bus-rsc4d-web:80
+}
+```
+
+站点块里只需要一行把它收进来：
+
+```caddy
+lolicon.fans {
+	import /etc/caddy/sites/modules/*.caddy
+
+	reverse_proxy 172.18.0.1:8402
+}
+```
+
+写完执行 `docker exec <caddy容器> caddy reload --config /etc/caddy/Caddyfile`。
+**两个配置项 `--caddy-sites` / `--caddy-container` 都给全才启用**；都不给就完全不做同步
+（面板不假设服务器上一定有 Caddy，也不去猜它的目录在哪）。
+
+两侧约定：
+
+- **glob 必须始终能匹配到文件** —— Caddy 的 `import` 找不到文件会直接报错。
+  所以本体至少会写一份带注释的空片段。
+- **模块容器必须挂在 Caddy 所在的那个 docker 网络上**，否则 `upstream` 解析不到。
+
+### 动态入口（`page.entry`）
+
+有的模块入口地址**每次启动才生成**、只打印在容器日志里（用一次性 token 换会话 cookie 的那类）。
+manifest 用 `page.entry` 声明，前端在打开页面时先取再嵌 iframe：
+
+```json
+"page": {
+  "kind": "iframe", "url": "/m/harness/", "upstream": "n1bus-harness:3081",
+  "entry": {"type": "container-log-token", "container": "n1bus-harness"}
+}
+```
+
+`type` 是**白名单，目前只有 `container-log-token`**：本体读该容器最近 400 行日志，
+用**本体自己内置的**正则提取 token，拼成 `page.url?token=…`。
+**模块给不了正则、也给不了命令** —— 与 ADR 0002 的边界一致。
+
+结果**不缓存**：这类 token 换完 cookie 就作废，缓存下来的只会是一个打不开的地址。
+容器名会作为 `docker logs` 的一个参数，因此按 `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$` 校验。
 
 ---
 
@@ -228,21 +255,15 @@ N1bus-modules/                    # 仓库 = registry
 ```
 安装：预检 → 从商店取 index.json → 下载 tar.gz → size gate → sha256 gate
       → 防穿越解包 → manifest 校验 → 落到 /opt/n1bus/modules/<id>/
-      → module.install → 端点检查 → 失败回滚（停容器 + 移走目录 + 写审计）
-      → 页面出现在扩展功能页（没有「接入」这一步）
+      → module.install → 重写 Caddy 路由 + 热重载
+      → 页面出现在模块页（没有「接入」这一步）
+      失败时：包或清单不合法 → 服务器上不留半个模块；
+              容器起不来 → 目录保留（便于排障），如实报错，不回滚 Caddy
 
-卸载：module.stop → 移走目录 → 从列表移除（数据卷是否保留由用户在界面上选）
+卸载：module.down（摘容器，保留数据卷）→ 移走目录 → 重写路由（撤掉该模块）
 ```
 
-每一步都写审计。
-
-### 既有部署不搬家
-
-服务器上这两套栈各有自己的目录（KMS 在 `/opt/nimbus/docker/`、harness 在 `/opt/dsh/`）。
-为了「统一」搬目录会**重建容器**，KMS 客户端要断约 10 秒。所以这两个模块的 compose 路径
-来自本体里的**固定常量**，`module.install` 退化成 `up -d`。
-
-registry 里若有更高版本，商店提示「可升级」（升级本身下一轮做）。
+每一步都写审计（`module.fetch` / `module.install` / `module.route` / `module.remove`）。
 
 ---
 
@@ -252,33 +273,34 @@ registry 里若有更高版本，商店提示「可升级」（升级本身下�
 
 1. **模块不提供命令。** manifest 里没有任何「要执行的字符串」；本体执行的永远是写死的
    `module.*` 动作。模块的代码跑在**它自己的容器**里，本体只是编排它。
-2. **一切都过哈希。** 只认 `index.json` 里的 sha256；解包时拒绝绝对路径、`..`、符号链接
-   （与文件管理器同一套 `realpath` + 根判定）。
+2. **一切都过哈希。** 只认 `index.json` 里的 sha256；解包时拒绝绝对路径、`..`、
+   符号 / 硬链接（与文件管理器同一套 `realpath` + 根判定）。
 3. **受信 registry 是唯一来源**（见 §4）。
+4. **动态入口的类型是白名单**，正则写死在本体里；模块影响不了怎么解析（§6）。
 
-> 附带的一处简化：早先的 `aggregate` 块要拿**外部提供的正则**去解析容器日志，
-> 必须按不可信输入处理（长度上限、限制回溯、限制输入行数）。声明式块作废后，
-> 这条攻击面**随之消失** —— 页面改由 iframe 承载，本体不再解析模块的任何内容。
+> 模块页面与面板**同源**（`/m/<id>/` 与 `/` 同一个域名）。这是有意的取舍：
+> 模块来自受信 registry，同源让它能直接用面板的会话，代价是模块页面在原理上
+> 也能碰到面板的存储。跨源（子域名）能消除这一点，但要给每个模块一个 DNS 记录
+> 与证书 —— 现阶段不值当。
 
 ---
 
-## 9. 商店里规划的两个模块
+## 9. 商店里的两个模块
 
-| 模块 | 内容 |
-|---|---|
-| **rsc4d** | KMS 服务端。**服务器上已在运行**：容器 `rs-c4d`（镜像 `nimbus:local`）里由 supervisord 跑两个进程 —— `rs-c4d`（KMS wire 协议，`1688/tcp` 发布到 `0.0.0.0`）与 `nimbus`（原 v1m-dash 的那套面板，`8099/tcp` 只发布到 `127.0.0.1`）。它自带界面，所以模块页面走 iframe 即可 |
-| **harness** | DeepSeek Harness —— 独立容器里的 agent 面板（与 ADR 0008 同一套部署）。**它的入口是动态的**：一次性 token 换 cookie，token 每次启动才生成、只打在容器日志里。而模块系统目前只支持**静态** `page.url` —— 做这个模块之前，得先让 manifest 支持「入口 URL 由本体动态提供」（后端 `/api/dsh` 的能力已经留着） |
+| 模块 | 内容 | 页面 |
+|---|---|---|
+| **rsc4d** | KMS 服务端 `rs-c4d`（协议 v4 / v5 / v6）。容器暴露 `1688`（裸 TCP，给客户端）与 `8080`（rs-c4d-web，供探测）；另有一个 `caddy:2-alpine` 容器承载状态页并把 `healthz` 转给 KMS 容器 | `/m/rsc4d/`：实时探测 KMS 可达性 + 各平台的客户端配置命令 |
+| **harness** | DeepSeek Harness —— 容器里的 agent 面板（与 ADR 0008 同一套部署）。本体只监听容器内的 127.0.0.1，靠镜像里的 TCP 转发把 `3081` 露出来 | `/m/harness/`：dsh 自己的界面，入口用 `page.entry` 取一次性 token |
 
-> **已处理（2026-10-11）**：Caddy 里同一个域名 `adkms.lolicon.fans` 曾被定义**两次**
-> （主 `Caddyfile` 里 upstream 写成 `kms:8099`，`caddy-sites/kms-panel.caddy` 里写的是
-> 正确的 `rs-c4d:8099`），因此该域名一直返回 TLS internal error。
-> 现已按用户要求把 **KMS 与 DSH 的反代一并移除**，Caddy 只保留面板本身：
-> `lolicon.fans` → `172.18.0.1:8402`（`caddy-sites/steward.caddy`），
-> 原配置备在同一目录的 `*.bak-*` 里。`adkms.lolicon.fans` 的 DNS 记录还在，
-> 但 Caddy 已不为它服务（要彻底清掉得去 DNS 服务商删记录）。
+**为什么 rsc4d 的页面不是 rs-c4d 自带的那个 web**：它把链接写成根绝对路径（`/status`），
+挂在 `/m/rsc4d/` 前缀下点开会打到面板自己的路由上。所以状态页由模块自带，
+探测请求走相对路径 `healthz`，两边对得上。
+
+两个模块的镜像都**没有发布到公开 registry**（`rs-c4d:local` / `dsh:local`），
+compose 里的 `image:` 写成 `${VAR:-默认值}`，可用模块目录下的 `.env` 覆盖。
 
 RSC4D 上线后，**vlmcsd 退役**，激活记录不迁移（见 ADR 0012）——
-注意**退役的是 vlmcsd，不是那套面板**：面板（`nimbus`）跟着搬进了 `rs-c4d` 容器继续跑。
+注意**退役的是 vlmcsd，不是那套面板**。
 
 ---
 
@@ -286,10 +308,10 @@ RSC4D 上线后，**vlmcsd 退役**，激活记录不迁移（见 ADR 0012）—
 
 | # | 问题 | 倾向 |
 |---|---|---|
-| 1 | 模块的**升级** | 下一轮（**卸载已实现**：先 `module.down` 再删目录，保留数据卷） |
+| 1 | 模块的**升级**（装上更高版本） | 下一轮。目前要升级得先卸载再装 |
 | 2 | 模块之间的依赖 | 不做 |
 | 3 | registry 是否要求签名（minisign/GPG） | 先不做；哈希 + 单源已在可接受范围 |
-| 4 | 除读日志外，是否还要「代模块调本机 HTTP API」 | 倾向不要（见 §6） |
-| 5 | 模块页面的同源路径规则（`/m/<id>/` 还是别的） | 实现时定 |
-| 6 | 模块根目录（`/opt/n1bus/modules`）是否要做成可配置 | 目前真机固定、演示模式指到数据目录下 |
-| 7 | 商店地址 | 已可用 `--store-url` / `N1BUS_STORE_URL` 换（默认 registry 仓库的 Pages） |
+| 4 | 读模块容器日志（本体内置一个「模块日志」块） | 有用，但用 `docker logs` 也能看，优先级低 |
+| 5 | 模块页面的同源路径规则（`/m/<id>/` 还是别的） | 已定为 `/m/<id>/` |
+| 6 | 模块根目录（`/opt/n1bus/modules`）是否做成可配置 | 目前真机固定、演示模式指到数据目录下 |
+| 7 | 模块镜像的公开分发 | 待定：需要能把镜像推到 ghcr（token 需 `write:packages`） |

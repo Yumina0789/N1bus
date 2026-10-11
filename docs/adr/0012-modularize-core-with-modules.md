@@ -4,11 +4,11 @@
 
 已接受（2026-10-11）
 
-> **实现状态：未实现**（2026-10-11 核对代码）。本 ADR 定下的目标形态尚未落地：
-> KMS 与 Harness 仍硬编码在 `n1bus_kms.py` + `ui.html` 的 `tab-ext` 里，
-> `n1bus_actions.py` 的 `ACTIONS` 表没有 `module.*` 四项动作，前端 `TABS` 里那一项
-> 仍叫「扩展功能」而不是「模块」，也没有商店 / registry / 接入开关的界面或端点。
-> 完整规格见 `docs/modules.md`。
+> **实现状态：已实现**（2026-10-11）。KMS 与 Harness 都已搬出去，现在是 registry 仓库
+> `Yumina0789/N1bus-modules` 里的 `rsc4d` 与 `harness` 两个模块，**装上即在模块页出现**。
+> `module.*` 五个受控动作、商店 / registry、iframe 页面、Caddy 路由自动同步、
+> 动态入口（`page.entry`）都已落地；原先写死的 `n1bus_kms.py`、`/api/kms*`、`/api/dsh`
+> 与 `tab-ext` 里的两个子视图全部删除。完整规格与实现状态见 `docs/modules.md`。
 
 ## 背景
 
