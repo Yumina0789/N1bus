@@ -1999,6 +1999,41 @@ function nowText(){
   const p = n => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+/* 当前**筛选后**的记录，供「导出」与「点开详情」用。
+   为什么不从 DOM 里抠：那一列显示的是截断过的文本，抠出来只剩省略号。 */
+let AU_LAST = [];
+
+/* 导出当前筛选结果。
+   起因：「对象与说明」是自由文本（docker 报错一百多字），表格里只能截断显示，
+   手机又没有 hover、tooltip 也读不下那么长。导出后在编辑器 / Excel 里慢慢看。
+   带 BOM 是给 Excel 认 UTF-8 的 —— 不加的话中文列名会变乱码。 */
+function exportAudit(){
+  if(!AU_LAST.length){ toast("当前没有可导出的记录", true); return; }
+  const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const csv = ["时间", "动作", "来源", "结果", "对象", "说明"].map(q).join(",") + "\r\n" +
+    AU_LAST.map(x => [x.ts || "", x.action || "", x.ip || "", x.ok ? "成功" : "失败",
+                      x.target || "", x.detail || ""].map(q).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"}));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "n1bus-audit-" + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "") + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast("已导出 " + AU_LAST.length + " 条");
+}
+
+/* 点某一行看完整记录。用 askAlert（只带「知道了」）而不是 askConfirm —— 这里没有
+   要确认的事，摆两个按钮只会让人犹豫。 */
+function showAuditDetail(i){
+  const x = AU_LAST[i];
+  if(!x) return;
+  const rows = [["时间", x.ts], ["动作", x.action], ["来源", x.ip],
+                ["结果", x.ok ? "成功" : "失败"], ["对象", x.target], ["说明", x.detail]];
+  askAlert('<div class="kv wide">' + rows.map(([k, v]) =>
+    `<div class="k">${esc(k)}</div><div class="v mono">${esc(v || "—")}</div>`).join("") + '</div>',
+    {title: "审计详情"});
+}
+
 async function loadAudit(){
   // 多取一些：加了筛选之后要保持列表里还是有内容可看（每条都能点开看全文）
   const j = await api("/api/audit?lines=200");
@@ -2028,9 +2063,10 @@ async function loadAudit(){
   // 动作、对象、说明都直接铺在表里。原先它们塞在一个 data-full 里、只在点击时
   // 仅在点击时以悬浮提示显示，表格「详情」列固定显示「点击查看」—— 关键信息被隐藏，
   // 而该列本身不提供任何信息。
-  document.getElementById("auBody").innerHTML = e.map(x => {
+  AU_LAST = e;                       // 导出与详情都按这一份来（DOM 里那份是截断过的）
+  document.getElementById("auBody").innerHTML = e.map((x, i) => {
     const other = [x.target, x.detail].filter(Boolean).join(" · ");
-    return `<tr>
+    return `<tr onclick="showAuditDetail(${i})">
       <td class="mono hint">${esc(String(x.ts || "").slice(5, 16))}</td>
       <td class="mono cell-main">${esc(x.action || "")}</td>
       <td class="mono cell-mini">${esc(x.ip)}</td>

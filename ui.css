@@ -541,6 +541,8 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
    注意 max-width 必须落在一个**块级**元素上：直接给 td 加会被表格的 auto 布局忽略
    （实测列宽纹丝不动），所以这里套了一层 span。全文进 title，hover 即见。 */
 .audit-note{display:block;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 整行可点开详情：给个手型，否则没人知道能点 */
+#auBody tr{cursor:pointer}
 /* 窄屏再收一档：手机上没有 hover，但至少别让一行变成一屏 */
 @media (max-width:640px){.audit-note{max-width:150px}}
 /* 窄屏下的状态列。
