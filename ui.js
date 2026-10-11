@@ -2379,7 +2379,7 @@ function renderStore(st){
     const tr = document.createElement("tr");
     tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>" + esc(m.summary || "") +
       "</td><td>v" + esc(m.latest || "") + "</td><td class='num'>" +
-      (inst ? (updateBtn(m.id, inst.update) || "<span class='hint'>已安装</span>")
+      (inst ? (updateBtn(m.id, inst.update) || "<span class='hint'>已装</span>")
             : "<button class='act mini' onclick=\"installModule('" + esc(m.id) + "')\">安装</button>") +
       "</td>";
     body.appendChild(tr);

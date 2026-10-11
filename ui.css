@@ -550,6 +550,21 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 #auBody tr{cursor:pointer}
 /* 窄屏再收一档：手机上没有 hover，但至少别让一行变成一屏 */
 @media (max-width:640px){.audit-note{max-width:150px}}
+
+/* 模块页在手机上的拥挤。
+   商店表 4 列挤在 344px 里：模块名只分到 61px（「KMS 激活服务」折成两行）、
+   操作列 33px（「已安装」被折成「已安 / 装」），而「说明」独占 202px。
+   模块名与操作列才是要点 —— 让它们不许折行，说明列自然把宽度让出来。
+   注意只能用 white-space，max-width 落在 td 上会被表格的 auto 布局忽略。 */
+@media (max-width:640px){
+  table:has(#stStoreBody) th:nth-child(1), #stStoreBody td:nth-child(1),
+  table:has(#stStoreBody) th:nth-child(4), #stStoreBody td:nth-child(4),
+  table:has(#stInstBody) th:nth-child(1), #stInstBody td:nth-child(1),
+  table:has(#stInstBody) th:nth-child(3), #stInstBody td:nth-child(3){
+    white-space:nowrap}
+  /* 触控目标：36×30 偏小（一般建议 44 起）。模块表行不多，加高一点不挤。 */
+  #stInstBody .act, #stStoreBody .act{min-height:34px;padding:0 11px}
+}
 /* 窄屏下的状态列。
    手机上这一列只给得出约 100px，而「运行（active / running）」光文字就要 152px ——
    无论怎么排都会被 ellipsis 切掉尾巴（表现成「运行（active / run...」），反倒像坏了。
