@@ -75,7 +75,7 @@ function svcState(u){
   if(a === "active") return {t: "运行", c: "ok"};
   return {t: "停止", c: "mute"};
 }
-function dot(kind, text){
+function dot(kind, text, note){
   /* 文字不再只躺在 data-full 里：那样状态列就只剩一颗色点，
      不悬停/不长按气泡根本分不出「已封禁」和「未封禁」。渲染交给 CSS，
      这样 20 多个调用点一个都不用改。
@@ -83,10 +83,15 @@ function dot(kind, text){
      data-short 是给窄屏用的：手机版状态列只给得出约 100px，而
      「运行（active / running）」要 152px —— 怎么排都会被 ellipsis 切掉尾巴。
      把中文括号里的补注摘掉正好够用，完整信息仍在 data-full 的气泡里。
-     调用点不用传这个值，从 text 里推即可。 */
+     调用点不用传这个值，从 text 里推即可。
+
+     note 是可选的一句解释（悬停可见）。状态文字一旦带上逗号和从句
+     （「受保护，面板不允许改」），列里就只剩状态词、解释进 note —— 列宽回来，
+     信息也没丢。 */
   const full = String(text == null ? "" : text);
   const short = full.replace(/（[^）]*）/g, "").trim() || full;
-  return `<span class="dot-tag ${kind}" data-full="${esc(full)}" data-short="${esc(short)}"></span>`;
+  return `<span class="dot-tag ${kind}"${note ? ` title="${esc(note)}"` : ""}` +
+         ` data-full="${esc(full)}" data-short="${esc(short)}"></span>`;
 }
 /* 点状态色点时别触发所在行的点击（例如服务表整行可点开详情） */
 document.addEventListener("click", e => {
@@ -666,7 +671,7 @@ async function loadImages(){
     {c: "mono cell-mini", h: esc(i.id)},
     {c: "num", h: esc(i.size)},
     {c: "cell-mini", h: esc(i.created)},
-    {h: dangling(i) ? dot("warn", "无标签，可清理") : dot("mute", "有标签")},
+    {h: dangling(i) ? dot("warn", "无标签", "没有任何标签指向它，可以用「清理无标签镜像」回收") : dot("mute", "有标签")},
     // 用镜像 ID 而不是 repo:tag —— ID 唯一，而同一个 ID 可能挂着好几个标签；
     // 按标签删只会先摘掉那个标签、镜像本体还在，用户会以为「没删掉」。
     {c: "num", h:
@@ -904,13 +909,16 @@ function renderDefender(d){
          : "自动封禁已关闭"}</td></tr>`;
 
   const log = d.log || [];
-  document.getElementById("seDefLog").innerHTML = log.map(x =>
-    `<tr><td class="mono hint">${esc(new Date(x.ts * 1000).toLocaleString("zh-CN"))}</td>
+  document.getElementById("seDefLog").innerHTML = log.map(x => {
+    /* 「是谁做的、做了什么」（actor + detail）此前直接铺在结果列里，长到 70 字，
+       把这一列撑得很宽 —— 而真正要一眼扫的只有成功 / 失败。收进 title，悬停即见；
+       信息没丢，列宽还回来了。 */
+    const note = [x.actor || "", x.detail || ""].join(" ").trim();
+    return `<tr><td class="mono hint">${esc(new Date(x.ts * 1000).toLocaleString("zh-CN"))}</td>
       <td class="mono">${esc(x.ip)}</td>
       <td class="num">${x.n ? num(x.n) : "–"}</td>
-      <td>${x.ok ? dot("ok", "成功") : dot("warn", "失败")}
-        <span class="hint"> ${esc(x.actor || "")} ${esc((x.detail || "").slice(0, 70))}</span></td>
-      </tr>`).join("") || '<tr><td colspan="4" class="empty">暂无处置记录</td></tr>';
+      <td${note ? ` title="${esc(note)}"` : ""}>${x.ok ? dot("ok", "成功") : dot("warn", "失败")}</td>
+      </tr>`;}).join("") || '<tr><td colspan="4" class="empty">暂无处置记录</td></tr>';
 
   const ex = d.exempt || [];
   document.getElementById("seDefExempt").innerHTML = ex.length
@@ -1179,10 +1187,10 @@ async function loadAutostart(){
     const canToggle = !u.protected && u.togglable !== false;
     const action = u.enabled ? "boot.disable" : "boot.enable";
     const text = u.enabled ? "取消开机自启" : "开机自启";
-    const stateCell = u.protected ? dot("warn", "受保护，面板不允许改")
+    const stateCell = u.protected ? dot("warn", "受保护", "这个单元受保护，面板不提供改动")
                                   : (u.enabled ? dot("info", "已启用")
                                                : (canToggle ? dot("mute", "未启用")
-                                                            : dot("mute", "不可切换")));
+                                                            : dot("mute", "不可切换", "这个单元面板不提供开机自启开关")));
     const actCell = canToggle
       ? `<button class="act ghost mini"
            onclick="runAction('${action}',{unit:'${esc(u.unit)}'},this)">${text}</button>`
