@@ -17,6 +17,11 @@ PORT="8402"
 BIND="127.0.0.1"
 ALLOW_IP=""
 TOKEN=""
+# 模块商店与模块页面的 Caddy 同步。必须在这里给出默认值：脚本开头是 set -u，
+# 未定义的变量在 `[ -n "$X" ]` 里会让安装直接中断（这个坑踩过一次）。
+STORE_URL=""
+CADDY_SITES=""
+CADDY_CONTAINER=""
 REPO_RAW="${N1BUS_REPO_RAW:-https://raw.githubusercontent.com/Yumina0789/N1bus/main}"
 UNINSTALL=0
 PURGE=0
