@@ -931,7 +931,7 @@ async function defenderExempt(ip, on){
 async function defenderUnban(ip, jail){
   if(!await askConfirm("解除 <b class=\"mono\">" + esc(ip) + "</b> 的封禁？<br><br>" +
       "该地址将同时加入<b>豁免名单</b>，不再被自动永久封禁。",
-      {title:"解除封禁", okText:"解封"})) return;
+      {title:"解除封禁", okText:"解除封禁"})) return;
   try{
     const j = await api("/api/security/unban",
                         {method:"POST", body: JSON.stringify({ip, jail: jail || ""})});
@@ -960,7 +960,7 @@ function renderGuard(g){
     (blocked.length ? blocked.map(b =>
       `<div class="k mono">${esc(b.ip)}</div><div class="v">第 ${num(b.level)} 档 · 剩余 ${dur(b.seconds)}
         <button class="act ghost mini" style="margin-left:8px"
-                onclick="unblock('${esc(b.ip)}')">解封</button></div>`).join("") : "") +
+                onclick="unblock('${esc(b.ip)}')">解除封禁</button></div>`).join("") : "") +
     // 这里原先贴了一整条 curl 命令。界面上不该出现这种部署细节：
     // 列表里本来就能直接点「解封」，命令行请查文档。
     '<div class="k"></div><div class="v hint">按来源 IP 计数、不锁定账户；封禁期间该来源无法登录面板。' +
@@ -968,7 +968,7 @@ function renderGuard(g){
 }
 async function unblock(ip){
   if(!await askConfirm("解封 <b>" + esc(ip) + "</b> ？\n\n失败计数清零，封禁档位保留。",
-                       {title: "解封来源 IP", okText: "解封"})) return;
+                       {title: "解除来源封禁", okText: "解除封禁"})) return;
   const j = await api("/api/accounts/unblock", {method:"POST", body: JSON.stringify({ip})});
   if(j.ok){ toast("已解封 " + esc(ip)); loadSecurity(); }
   else toast(esc(j.error || "解封失败"), true);
@@ -1527,13 +1527,18 @@ function addTask(){
     every: Number(document.getElementById("mtEvery").value || 3600)}, "任务已添加");
 }
 function runTask(id){ _taskPost("/api/tasks/run", {id: id}, "已触发执行"); }
-function toggleTask(id){ _taskPost("/api/tasks/toggle", {id: id}, "已切换"); }
+function toggleTask(id){ _taskPost("/api/tasks/toggle", {id: id}, "已切换任务的启停状态"); }
 async function delTask(id){
-  if(!await askConfirm("删除这个计划任务？", {title: "删除任务", danger: true, okText: "删除"})) return;
+  if(!await askConfirm("删除计划任务 <b class=\"mono\">" + esc(id) + "</b> ？<br><br>" +
+      "删除后不再执行；已产生的审计记录保留。",
+      {title: "删除计划任务", danger: true, okText: "删除"})) return;
   _taskPost("/api/tasks/del", {id: id}, "任务已删除");
 }
 
 /* --- 告警与阈值 -------------------------------------------------------- */
+/* 告警指标的内部键 → 界面用词。后端用 disk_percent 这类英文键，不该直接印给用户看。 */
+const ALERT_METRIC_CN = { disk_percent: "根分区占用", mem_percent: "内存占用",
+                          load_per_core: "每核负载", failed_units: "systemd 失败单元" };
 async function loadAlerts(){
   const j = await api("/api/alerts");
   const c = j.config || {}, r = c.rules || {};
@@ -1553,7 +1558,7 @@ async function loadAlerts(){
   if(hint) hint.textContent = j.note || "";
   const tbody = document.getElementById("alRecent");
   if(tbody) tbody.innerHTML = (j.recent || []).map(x => `<tr>
-    <td class="hint mono">${esc(x.ts)}</td><td class="mono">${esc(x.metric)}</td>
+    <td class="hint mono">${esc(x.ts)}</td><td class="mono">${esc(ALERT_METRIC_CN[x.metric] || x.metric)}</td>
     <td class="num">${x.value == null ? "–" : esc(x.value) + " / " + esc(x.threshold)}</td>
     <td>${x.ok ? dot("ok", "已发出") : dot("bad", "发送失败")}
       <span class="hint">${esc((x.detail || "").slice(0, 50))}</span></td></tr>`).join("") ||
@@ -1713,11 +1718,12 @@ async function loadActions(){
   ACTIONS = j.actions || [];
   // 动作按名称前缀归到所属模块 —— 30 个动作平铺会形成一条几百像素的长列表，
   // 分组后能一眼看出"清理类有哪些、服务类有哪些"。
-  const GROUP_LABELS = { apt: "软件包 · apt", backup: "备份", boot: "开机自启",
-                         clean: "清理", docker: "Docker", journal: "日志",
+  const GROUP_LABELS = { apt: "软件包（apt）", backup: "备份", boot: "开机自启",
+                         clean: "清理", docker: "Docker", journal: "系统日志",
                          panel: "面板自身", process: "进程", service: "systemd 服务",
-                         system: "系统", systemd: "systemd", time: "时间 · 时区",
-                         ufw: "防火墙", other: "其它" };
+                         system: "系统", systemd: "systemd 重载", time: "时间与时区",
+                         ufw: "防火墙", fail2ban: "fail2ban 封禁", module: "模块",
+                         other: "其他" };
   const ORDER = ["clean", "journal", "apt", "docker", "systemd", "service", "process",
                  "ufw", "time", "boot", "backup", "panel", "system", "other"];
   const groups = new Map();
@@ -1742,7 +1748,7 @@ async function loadActions(){
         <div class="aitem">
           <div class="alabel">
             <b>${esc(a.label)}</b>
-            ${a.danger ? '<span class="tag bad">危险</span>' : '<span class="tag mute">安全</span>'}
+            ${a.danger ? '<span class="tag bad">危险</span>' : ''}
             <span class="hint mono adesc">${esc(a.name)} · ${esc(a.desc)}</span>
           </div>
           <div class="aparams">
@@ -1889,7 +1895,7 @@ async function loadAudit(){
   const sel = document.getElementById("auGroup");
   if(sel){
     const cur = sel.value;
-    sel.innerHTML = '<option value="">全部模块</option>' +
+    sel.innerHTML = '<option value="">全部类别</option>' +
       groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
     if(groups.indexOf(cur) >= 0) sel.value = cur;     // 保留用户已选的筛选
   }
@@ -1978,14 +1984,14 @@ async function createAccount(){
 async function changePassword(name){
   const target = name || ME;
   const f = await askForm(
-    "修改 <b>" + esc(target) + "</b> 的密码。需使用<b>本人当前密码</b>验证身份。",
+    "修改 <b>" + esc(target) + "</b> 的密码。需使用<b>你当前登录账户的密码</b>验证身份。",
     [{key: "password", label: "新密码（至少 8 位）", type: "password"},
-     {key: "actor_password", label: "本人当前密码", type: "password"}],
+     {key: "actor_password", label: "你当前登录账户的密码", type: "password"}],
     {title: "修改密码", okText: "保存"});
   if(!f) return;
   const password = f.password || "", actor_password = f.actor_password || "";
-  if(!password) return toast("请填写新密码", true);
-  if(!actor_password) return toast("需提供本人当前密码", true);
+  if(!password) return toast("请输入新密码", true);
+  if(!actor_password) return toast("请输入你当前登录账户的密码", true);
   const j = await api("/api/accounts/password", {method:"POST",
     body: JSON.stringify({name: name || "", password, actor_password})});
   if(j.ok){
