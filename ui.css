@@ -442,6 +442,9 @@ table:has(#fmBody) td:last-child{width:1%}
 .kv .v.hint{color:var(--dim2);font-size:inherit}
 /* 跨两列的整行说明（.kv 是两列网格，长段落需要通栏，否则左边空一列） */
 .kv>.full{grid-column:1/-1}
+/* 值列里的输入控件：撑满到上限。默认 min-width:170px 丢进 1fr 的宽列里会缩成一小截，
+   看着像没填完；带内联 width 的地方（如 #seDefTh）优先级更高，不受影响。 */
+.kv .v>input:not([type=checkbox]),.kv .v>select{width:100%;max-width:420px}
 @media (max-width:560px){.kv,.kv.wide{grid-template-columns:minmax(0,1fr)}}
 pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
     overflow:auto;font-size:12px;margin:0;max-height:340px;white-space:pre-wrap;word-break:break-all}

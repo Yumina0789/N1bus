@@ -2317,12 +2317,19 @@ function moduleConfigHtml(mid, items){
             (it.type === "number" ? ' min="' + esc(it.min) + '" max="' + esc(it.max) + '"' : "") +
             (it.placeholder ? ' placeholder="' + esc(it.placeholder) + '"' : "") + '>';
     }
-    return '<div class="row" style="margin:9px 0"><div class="k">' +
-      esc(it.label || it.key) + '</div><div class="v">' + ctl +
-      (it.help ? '<div class="hint">' + esc(it.help) + '</div>' : "") + '</div></div>';
+    // 直接把 k / v 交给 .kv 这个两列网格，不要再包一层 .row：
+    //   * .kv 是 grid，包一层会让每个配置项只占一格，于是在「150px 标签列」和
+    //     「1fr 值列」之间交替错位，两三项挤在半行里；
+    //   * 更麻烦的是 .k/.v 的祖先一旦不是 .kv，.kv .k{color}/.kv .v{color}
+    //     全部落空，配色就和别的卡片不一样了。
+    return '<div class="k">' + esc(it.label || it.key) + '</div>' +
+      '<div class="v">' + ctl +
+      (it.help ? '<div class="hint gap-xs">' + esc(it.help) + '</div>' : "") + '</div>';
   }).join("");
   return '<details class="fold gap-sm"><summary>模块设置' +
     '<span class="end">' + items.length + ' 项</span></summary><div class="foldbody">' +
+    '<div class="hint">这里的值写进模块自己的 .env，改完点「保存并应用」才生效；' +
+    '只有会影响运行参数的项才需要重建容器，纯展示类项当场就能读到新值。</div>' +
     '<div class="kv wide">' + rows + '</div>' +
     '<div class="row" style="margin-top:10px"><span class="grow"></span>' +
     '<button class="act" onclick="saveModuleConfig(\'' + esc(mid) + '\')">保存并应用</button>' +
