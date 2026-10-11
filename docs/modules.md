@@ -219,6 +219,12 @@ lolicon.fans {
 }
 ```
 
+> **踩过的坑：站点块的响应头会一并应用到模块页面上。**
+> 如果那里写着 `X-Frame-Options DENY`（面板自己确实不需要被谁嵌入），浏览器就会
+> **拒绝把模块页面显示在 iframe 里** —— 表现是 iframe 一片空白或报「拒绝连接」，
+> 而服务端日志干干净净、`curl /m/<id>/` 还是 200。改成 `SAMEORIGIN` 即可：
+> 模块页面与面板同源，既允许面板嵌它，又不允许外部站点嵌面板。
+
 写完执行 `docker exec <caddy容器> caddy reload --config /etc/caddy/Caddyfile`。
 **两个配置项 `--caddy-sites` / `--caddy-container` 都给全才启用**；都不给就完全不做同步
 （面板不假设服务器上一定有 Caddy，也不去猜它的目录在哪）。
