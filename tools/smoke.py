@@ -45,12 +45,14 @@ proc = subprocess.Popen([sys.executable, str(ROOT / "n1bus.py"), "--mode", "demo
 CRED = {"v": TOKEN}          # 先拿服务 token 顶着，登录后换成会话令牌
 
 
-def call(path, method="GET", body=None, auth=True, cred=None):
+def call(path, method="GET", body=None, auth=True, cred=None, headers=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (PORT, path), data=data, method=method)
     if auth:
         req.add_header("Authorization", "Bearer " + (cred if cred is not None else CRED["v"]))
     req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     try:
         with opener.open(req, timeout=25) as r:
             return r.status, r.read()
@@ -425,6 +427,20 @@ try:
         st, body = call("/api/security", cred=TOKEN)
         dd = json.loads(body).get("defender") or {}
         ok(dd.get("running") is True, "打开之后巡检线程真的在跑（曾经只改状态、永不巡检）")
+
+        print("== 审计来源 IP：不可信来源的 X-Forwarded-For 必须被忽略 ==")
+        # _client_ip() 只在「直连方本身落在 --allow-ip 网段内」时才读 XFF。
+        # 本实例没有配 --allow-ip，所以任何请求带的 XFF 都必须被丢掉 ——
+        # 否则任意客户端都能把封禁转嫁给别人（登录限流的键同样取自这个函数）。
+        st, _ = call("/api/action", "POST", {"name": "systemd.reload"}, cred=TOKEN,
+                     headers={"X-Forwarded-For": "203.0.113.99"})
+        ok(st == 200, "先触发一次会写审计的动作：HTTP %s" % st)
+        st, body = call("/api/audit", cred=TOKEN)
+        entries = json.loads(body).get("entries") or []
+        acts = [e.get("action") for e in entries[:20]]
+        ips = [e.get("ip") for e in entries[:20]]
+        ok("systemd.reload" in acts, "该动作确实进了审计：%s" % (acts[:6],))
+        ok("203.0.113.99" not in ips, "伪造的 XFF 没出现在审计里：%s" % (ips[:6],))
 
         print("== 单元属性缓存：写操作后必须整批作废 ==")
         # 这三张表没有 TTL（模块级、进程内）。留下旧值会让界面显示 enabled 而 systemctl

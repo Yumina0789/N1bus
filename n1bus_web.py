@@ -132,20 +132,26 @@ class Handler(BaseHTTPRequestHandler):
         """审计里记的客户端 IP。
 
         面板通常挂在反向代理后面，直连方是那个容器（172.x）—— 那样审计里全部
-        记录都会记为该代理容器地址，等同于没有区分度。因此当直连方位于信任网段内时，取
-        X-Forwarded-For 的第一段（最左 = 最原始客户端）。直连方不在信任网段里就
-        完全不读取该头部，避免其被伪造。
+        记录都会记为该代理容器地址，等同于没有区分度。因此**仅当直连方本身落在
+        --allow-ip 网段内**（它才是个可信代理）时，才取 X-Forwarded-For 的第一段
+        （最左 = 最原始客户端）。
+
+        其余情况一律返回直连地址、**完全不读该头部** —— 没配 --allow-ip 时也在其列。
+        该头部由客户端随便书写，谁都能伪造成任意 IP：既能把自己的失败记录记到别人头上
+        （登录限流的键同样取自这个函数），也能把封禁转嫁给别人。
         """
         peer = self.client_address[0]
         nets = self.app.get("allow_nets") or []
-        if nets:
-            import ipaddress
-            try:
-                addr = ipaddress.ip_address(peer)
-            except ValueError:
-                return peer
-            if not any(addr in n for n in nets):
-                return peer
+        if not nets:
+            # 没有信任网段 = 没有可信代理，谁的转发头都不采信
+            return peer
+        import ipaddress
+        try:
+            addr = ipaddress.ip_address(peer)
+        except ValueError:
+            return peer
+        if not any(addr in n for n in nets):
+            return peer
         xff = self.headers.get("X-Forwarded-For", "")
         if xff:
             first = xff.split(",")[0].strip()
