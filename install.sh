@@ -23,7 +23,7 @@ REPO_RAW="${N1BUS_REPO_RAW:-https://raw.githubusercontent.com/Yumina0789/N1bus/m
 UNINSTALL=0
 PURGE=0
 PY="$(command -v python3 || true)"
-# 管道执行时 BASH_SOURCE 可能没有，退回 $0；再不行就当当前目录
+# 管道执行时 BASH_SOURCE 可能不存在，退回 $0；两者都不可用时以当前目录为准
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo ".")"
 
 usage() {
@@ -77,24 +77,24 @@ if [ "$UNINSTALL" = "1" ]; then
     echo "==> 删除 $DATA_DIR 与 $PREFIX"
     rm -rf "$DATA_DIR" "$PREFIX"
   else
-    echo "==> 数据保留在 $DATA_DIR（想删就加 --purge）"
+    echo "==> 数据保留在 $DATA_DIR（如需删除请加 --purge）"
   fi
   echo "完成。"
   exit 0
 fi
 
 if [ -z "$PY" ]; then
-  echo "找不到 python3。N1bus 只用标准库，装一个 python3 就行（apt install -y python3）。" >&2
+  echo "找不到 python3。N1bus 只用标准库，安装 python3 即可（apt install -y python3）。" >&2
   exit 1
 fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# 源码清单。**不要改成 glob**：这个脚本常被 `curl … | bash` 或从任意目录执行，
-# 那时 $SCRIPT_DIR 里没有这些文件，glob 匹配不到就**不展开**，会把字面量
-# "n1bus*.py" 当成文件名去请求，结果 404（2026-10 迁移时踩过，回滚了一次）。
-# 代价是加模块要回来改这里 —— 由 tools/check.py 的「清单一致性」检查兜住。
+# 源码清单。必须保持显式清单，不要替换为 glob：本脚本常在 `curl … | bash` 管道中或从任意目录执行，
+# 此时 $SCRIPT_DIR 中没有这些文件，glob 匹配不到就不会展开，会把字面量
+# "n1bus*.py" 当作文件名去请求，导致 404（2026-10 迁移时曾发生，并回滚过一次）。
+# 代价是新增模块需要同步修改此处 —— 由 tools/check.py 的「清单一致性」检查覆盖。
 SRC_FILES="n1bus.py n1bus_util.py n1bus_cache.py n1bus_audit.py n1bus_files.py n1bus_actions.py n1bus_system.py n1bus_security.py n1bus_probe.py n1bus_tasks.py n1bus_kms.py n1bus_web.py ui.html ui.css ui.js"
 
 echo "==> 取源码"
@@ -105,7 +105,7 @@ for f in $SRC_FILES; do
     curl -fsSL --retry 3 --connect-timeout 15 -H 'Cache-Control: no-cache' \
       "$REPO_RAW/$f" -o "$WORK/$f"
   fi
-  [ -s "$WORK/$f" ] || { echo "拿不到 $f" >&2; exit 1; }
+  [ -s "$WORK/$f" ] || { echo "无法获取 $f" >&2; exit 1; }
 done
 
 echo "==> 安装到 $PREFIX"
@@ -133,7 +133,7 @@ if [ -n "$ENFORCE_URL" ] && [ -n "$ENFORCE_TOKEN" ]; then
   ENFORCE_ARGS=" --enforce-url $ENFORCE_URL --enforce-token $ENFORCE_TOKEN"
   echo "    自动封禁已配置：从 $ENFORCE_URL 拉取待执行列表"
 else
-  echo "    没给 --enforce-url/--enforce-token，自动封禁关闭（面板上仍可手动封禁）"
+  echo "    未提供 --enforce-url/--enforce-token，自动封禁已关闭（面板上仍可手动封禁）"
 fi
 ALLOW_ARGS=""
 if [ -n "$ALLOW_IP" ]; then
@@ -153,10 +153,10 @@ ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir 
 Restart=always
 RestartSec=3
 User=root
-# 面板本身就是半个 root 工具（要 systemctl / docker / 杀进程），下面这些只是顺手挡误伤。
+# 面板本身需要 systemctl / docker / 进程信号等 root 能力；以下加固仅用于限制其可写范围。
 # 注意 ProtectSystem 的档位：yes = /usr /boot 只读；**full = 连 /etc 也只读**；
-# strict = 只剩 /dev /proc /sys 可写。所以要用 full 就必须把**会被写的**目录逐个放行，
-# 否则对应的白名单动作会以「... is not writable」失败（这个坑踩过两次）：
+# strict = 仅 /dev /proc /sys 可写。因此使用 full 时必须逐个放行**需要写入**的目录，
+# 否则对应的白名单动作会以「... is not writable」失败（该故障已出现过两次）：
 #   /etc/ufw            —— ufw.allow / ufw.deny 要写 user.rules
 #   /etc/systemd/system —— boot.enable / boot.disable 要建 *.wants/ 符号链接
 #                          （漏了它，面板上「设为开机自启」永远失败）
@@ -174,16 +174,16 @@ EOF
 
 systemctl daemon-reload
 systemctl enable n1bus
-# 一定要 restart 而不是 `enable --now`：对已经在跑的服务，`--now` 不会重启它，
-# 于是升级完还在跑旧代码（这个坑我自己踩过一次：新接口一直 404）。
+# 必须使用 restart 而非 `enable --now`：对已在运行的服务，`--now` 不会重启它，
+# 导致升级后仍运行旧代码（此情况曾发生过一次：新接口持续返回 404）。
 systemctl restart n1bus
 sleep 1
 if ! systemctl is-active --quiet n1bus; then
-  echo "!! 服务没起来，看日志：journalctl -u n1bus -n 50 --no-pager" >&2
+  echo "!! 服务未启动，查看日志：journalctl -u n1bus -n 50 --no-pager" >&2
   exit 1
 fi
 
-# 服务 active 不等于端口在听：面板要先建好采样器才会 bind。等它真的能连上再报成功。
+# 服务处于 active 不等于端口已监听：面板需先建好采样器才会 bind。确认真正可连接后再报告成功。
 PROBE_IP="${BIND%%,*}"                 # --bind 可以是逗号列表，拿第一个探活
 [ "$PROBE_IP" = "0.0.0.0" ] && PROBE_IP="127.0.0.1"
 [ "$PROBE_IP" = "docker" ] && PROBE_IP="127.0.0.1"
@@ -200,24 +200,24 @@ for _ in $(seq 1 30); do
 done
 printf '\n'
 if [ "$ready" != "1" ]; then
-  echo "!! 端口没起来，看日志：journalctl -u n1bus -n 50 --no-pager" >&2
+  echo "!! 端口未监听，查看日志：journalctl -u n1bus -n 50 --no-pager" >&2
   exit 1
 fi
-echo "==> 服务在跑，端口已就绪"
+echo "==> 服务运行中，端口已就绪"
 
 cat <<EOF
 
-N1bus 装好了。
+N1bus 安装完成。
 
   本机打开：http://$BIND:$PORT/?token=$TOKEN
   纯 token ：$TOKEN（存在 $DATA_DIR/n1bus.token，权限 600）
 
-  从你自己的电脑访问，先开隧道（最稳）：
+  从本机访问时建议使用 SSH 隧道：
       ssh -L $PORT:127.0.0.1:$PORT root@<这台机器的 IP>
       浏览器打开 http://127.0.0.1:$PORT/?token=$TOKEN
 
-  想用域名就直接交给反向代理，别把 $BIND 改成 0.0.0.0：
-  这是个能启停服务、杀进程、封 IP 的 root 面板，公网上只有 token 一道门。
+  如需使用域名，请交由反向代理处理，不要将 $BIND 改为 0.0.0.0：
+  这是一个可启停服务、终止进程、封禁 IP 的 root 面板，公网侧唯一的防线就是 token。
 
   看日志：journalctl -u n1bus -f
   升级  ：重跑这个脚本（会自动留 .bak）

@@ -106,7 +106,7 @@
         <span class="pill" id="hPill"><svg class="ico"><use href="#i-pulse"/></svg>…</span>
       </div>
       <button class="act ghost mini" onclick="runAction('panel.restart',{})"
-              title="只重启这个面板，几秒后自动回来，刷新即可">
+              title="仅重启本面板，数秒后自动恢复，刷新页面即可">
         <svg class="ico"><use href="#i-restart"/></svg>重启面板</button>
       <button class="act ghost mini" onclick="runAction('system.reboot',{})"
               title="重启整台机器，会断开所有连接与 KMS 服务">
@@ -222,9 +222,9 @@
     </div>
   </section>
 
-  <!-- 扩展功能：面板管不到的两样东西 —— KMS 授权服务与 DeepSeek Harness。
-       两者都跑在独立容器里，在面板里各自只是一页数据（Harness 是同源 iframe 嵌入，
-       KMS 由后端只读取 v1m-dash 的数据）。 -->
+  <!-- 扩展功能：面板不直接管理的两项能力 —— KMS 授权服务与 DeepSeek Harness。
+       两者都运行在独立容器中，在面板中各自只是一页数据（Harness 为同源 iframe 嵌入，
+       KMS 由后端只读获取 v1m-dash 的数据）。 -->
   <section id="tab-ext" class="hidden">
     <div class="subnav glass" id="subnav-ext">
       <button data-sub="kms" class="active"><svg class="ico"><use href="#i-shield"/></svg>KMS 授权服务</button>
@@ -329,7 +329,7 @@
   </div>
   </section>
 
-  <!-- 运行：服务 / 容器 / 端口进程，三选一，别一次全堆出来 -->
+  <!-- 运行：服务 / 容器 / 端口进程，三选一，避免一次性全部铺开 -->
   <section id="tab-runtime" class="hidden">
     <div class="subnav glass" id="subnav-runtime">
       <button data-sub="services" class="active"><svg class="ico"><use href="#i-server"/></svg>服务</button>
@@ -380,7 +380,7 @@
         <th class="num">操作</th></tr></thead><tbody id="dkBody"></tbody></table></div>
       <details class="fold gap-md" id="dkImagesWrap">
         <summary><svg class="ico"><use href="#i-list"/></svg>镜像
-          <span class="q">容器的模板，看占用与历史构建残留</span>
+          <span class="q">容器模板，查看占用与历史构建残留</span>
           <span class="end" id="dkImagesMeta"></span></summary>
         <div class="foldbody">
           <div class="scroll h-260"><table><thead><tr><th>仓库</th><th>标签</th><th>ID</th>
@@ -420,7 +420,7 @@
   <div class="subview hidden" id="sub-net">
     <div class="panel glass">
       <h2><svg class="ico"><use href="#i-plug"/></svg>监听端口
-        <span class="q">对外 = 非回环绑定</span>
+        <span class="q">对外 = 非回环地址绑定</span>
         <span class="end" id="ptMeta"></span></h2>
       <div class="scroll h-320"><table><thead><tr><th>协议</th><th>监听</th><th>端口</th>
         <th>进程</th><th>PID</th><th>范围</th></tr></thead><tbody id="ptBody"></tbody></table></div>
@@ -458,7 +458,7 @@
       <button data-sub="svcstate"><svg class="ico"><use href="#i-server"/></svg>服务状态</button>
     </div>
 
-    <!-- 这四个统计跨子标签，放在子导航下面共享，不重复铺三遍 -->
+    <!-- 这四个统计跨子标签共用，置于子导航下方共享，避免重复渲染三遍 -->
     <div class="grid g4" style="margin-bottom:var(--gap)">
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-ban"/></svg>登录失败</div>
         <div class="v" id="seFailed">–</div><div class="n">累计失败尝试</div></div>
@@ -473,10 +473,10 @@
   <div class="subview" id="sub-guard">
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-shield"/></svg>当前防护
-        <span class="q">变更经白名单动作，全程审计</span></summary>
+        <span class="q">所有变更均通过白名单动作执行，全程记录审计</span></summary>
       <div class="foldbody">
         <!-- 两块并排但互不相干，各自加小标题说明它管的是什么，否则左边是
-             v1m-dash 的限流决策、右边是面板登录限流，读者会以为是同一套东西。 -->
+             v1m-dash 的限流决策、右侧是面板登录限流，读者可能误认为两者是同一套机制。 -->
         <div class="grid g2">
           <div><h2>来源封禁（由 v1m-dash 决策）</h2><div class="kv" id="seEnf"></div></div>
           <div><h2>面板登录限流</h2><div class="kv" id="seGuard"></div></div>
@@ -516,7 +516,7 @@
           <th>端口</th><th>协议</th><th>来源</th><th>IPv6</th><th class="num">处置</th>
           </tr></thead><tbody id="sePortOut"></tbody></table></div>
         <h2><svg class="ico"><use href="#i-list"/></svg>其他规则
-          <span class="q">端口段 / 不限协议 / 转发 —— 面板不代做，需要时走 SSH</span></h2>
+          <span class="q">端口段 / 不限协议 / 转发：面板不代为配置，需要时请通过 SSH 操作</span></h2>
         <div class="scroll" style="max-height:160px"><table><thead><tr>
           <th>目标</th><th>动作</th><th>方向</th><th>来源</th>
           </tr></thead><tbody id="sePortOther"></tbody></table></div>
@@ -525,7 +525,7 @@
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-shield"/></svg>自动永久封禁
-        <span class="q">累计失败次数超阈值的来源执行 ufw deny，不自动解封</span>
+        <span class="q">对累计失败次数超阈值的来源执行 ufw deny，且不自动解封</span>
         <span class="end" id="seDefMeta"></span></summary>
       <div class="foldbody">
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
@@ -636,7 +636,7 @@
 
     <details class="fold">
       <summary><svg class="ico"><use href="#i-shield"/></svg>审计记录
-        <span class="q">谁在什么时候改了什么</span>
+        <span class="q">记录操作者、时间与变更内容</span>
         <span class="end" id="auMeta"></span></summary>
       <div class="foldbody">
         <!-- 100 条平铺时想找某一类动作要一路翻，所以给一个按模块筛的下拉：
@@ -693,14 +693,14 @@
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-file"/></svg>备份与恢复
-        <span class="q">打包下载；恢复需 SSH</span>
+        <span class="q">面板内可打包下载；恢复需通过 SSH 执行</span>
         <span class="end" id="sysBkMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll"><table><thead><tr><th>内容</th>
           <th class="num">大小</th></tr></thead><tbody id="sysBkBody"></tbody></table></div>
         <div class="row gap-md">
           <button class="act" onclick="runAction('backup.create',{})">
-            <svg class="ico"><use href="#i-check"/></svg>现在打包</button>
+            <svg class="ico"><use href="#i-check"/></svg>立即打包</button>
           <button class="act ghost" onclick="downloadBackup()">
             <svg class="ico"><use href="#i-file"/></svg>下载备份包</button>
         </div>
@@ -731,17 +731,17 @@
         <span class="end" id="sysBootMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll h-320"><table><thead><tr><th>单元</th><th>状态</th>
-          <th>自启</th><th class="num">操作</th></tr></thead><tbody id="sysBootBody"></tbody></table></div>
+          <th>开机自启</th><th class="num">操作</th></tr></thead><tbody id="sysBootBody"></tbody></table></div>
         <h2 class="gap-lg">容器</h2>
         <div class="scroll" style="max-height:146px"><table><thead><tr><th>容器</th>
-          <th>restart policy</th><th>自启</th><th class="num">操作</th></tr></thead>
+          <th>restart policy</th><th>开机自启</th><th class="num">操作</th></tr></thead>
           <tbody id="sysBootDk"></tbody></table></div>
       </div>
     </details>
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-clock"/></svg>系统设置
-        <span class="q">时区与 NTP 可配置；swap 只读</span>
+        <span class="q">时区与 NTP 可配置；swap 仅只读展示</span>
         <span class="end" id="sysSetMeta"></span></summary>
       <div class="foldbody">
         <div id="sysSetBody"></div>
@@ -758,7 +758,7 @@
   </div>
   </section>
 
-  <!-- 文件：白名单目录内的完整管理（浏览 / 上传 / 下载 / 编辑 / 改名 / 删除） -->
+  <!-- 文件：白名单目录内的完整管理（浏览 / 上传 / 下载 / 编辑 / 重命名 / 删除） -->
   <section id="tab-files" class="hidden">
     <div class="panel glass">
       <div class="fm-bar">
@@ -840,14 +840,14 @@
         <span class="q">所有账户权限相同，仅在用户名与密码上区分</span>
         <span class="end" id="acMe"></span></summary>
       <div class="foldbody">
-        <!-- 表单不常驻在这里：新增与改密码都是按钮 + 弹窗，卡片展开后只是一张表。
-             改别人的密码走表格行里的按钮，自己的密码走「修改我的密码」。 -->
+        <!-- 表单不驻留在卡片内：新增账户与修改密码均为「按钮 + 弹窗」，
+             修改其他账户走表格行内按钮，修改自己的走「修改我的密码」。 -->
         <div class="toolbar">
           <button class="act" onclick="createAccount()">
             <svg class="ico"><use href="#i-users"/></svg>新增账户</button>
           <button class="act ghost" onclick="changePassword()">
             <svg class="ico"><use href="#i-shield"/></svg>修改我的密码</button>
-          <span class="hint">改其他账户的密码，用表格里对应那一行的「改密码」</span>
+          <span class="hint">修改其他账户的密码，使用对应行内的「修改密码」</span>
         </div>
         <div class="scroll" style="max-height:286px"><table>
           <thead><tr><th>用户名</th><th>创建于</th><th>上次登录</th><th class="num">会话</th>
@@ -861,7 +861,7 @@
       <div class="foldbody">
         <div class="row">
           <button class="act ghost" onclick="logoutAll()">
-            <svg class="ico"><use href="#i-logout"/></svg>退出我的所有会话</button>
+            <svg class="ico"><use href="#i-logout"/></svg>退出本账户的全部会话</button>
         </div>
         <div class="hint gap-sm">
           服务 token（<code class="mono">/var/lib/n1bus/n1bus.token</code>）供脚本调用，不随账户失效；
@@ -914,7 +914,7 @@
 
 <div class="toast glass" id="toast"><svg class="ico"><use href="#i-check-circle"/></svg><span id="toastMsg"></span></div>
 
-<!-- 询问框：网页风格的 confirm / alert / prompt 替身（见样式表那一节） -->
+<!-- 询问框：网页风格的 confirm / alert / prompt 替代实现（见样式表对应章节） -->
 <div class="ask" id="ask">
   <div class="ask-box glass" role="dialog" aria-modal="true" aria-labelledby="askTitle">
     <div class="ask-head">

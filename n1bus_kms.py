@@ -12,13 +12,13 @@ from n1bus_util import read_text
 # KMS 授权服务（v1m-dash 的数据）
 #
 # 合并之后对外只有一个面板，但 KMS 的统计与限流决策仍留在原来的进程里：它同时管着
-# vlmcsd 的 ini、supervisord 的进程控制、以及激活日志的解析与归档。把这些全搬过来
-# 收益不大、风险不小。所以这里**只读取**它的数据，界面上不再有两套面板的感觉。
+# vlmcsd 的 ini、supervisord 的进程控制、以及激活日志的解析与归档。将这些全部迁移过来
+# 迁移收益有限而风险较高。因此这里**只读取**它的数据，界面上不再呈现两个独立面板。
 #
 # 这与 DeepSeek Harness 是同一个思路：Harness 也是独立容器，在面板里只是一个页面。
 # --------------------------------------------------------------------------
 NIMBUS_URL = os.environ.get("NIMBUS_URL") or "http://127.0.0.1:8099"
-# token 落在 docker 卷里。卷名取决于 compose 的项目名，所以按常见位置依次找一遍。
+# token 存放在 docker 卷中。卷名取决于 compose 的项目名，因此按常见路径依次探测。
 NIMBUS_TOKEN_PATHS = (
     "/var/lib/docker/volumes/docker_kms-data/_data/nimbus.token",
     "/var/lib/docker/volumes/kms-data/_data/nimbus.token",
@@ -26,8 +26,8 @@ NIMBUS_TOKEN_PATHS = (
 )
 
 # KMS 的写操作白名单：操作名 → (对方的路径, 允许透传的参数；None 表示全部参数)。
-# 不开放任意转发：那个面板还带着自己的账户接口（建账户、改密码），全量转发等于把
-# 它的登录体系一并交给这里的任何使用者。所以每个操作只挑自己需要的参数。
+# 不开放任意转发：那个面板还带着自己的账户接口（创建账户、修改密码），全量转发等于把
+# 它的登录体系一并交给这里的任何使用者。因此每个操作只选取自身需要的参数。
 KMS_WRITES = {
     "service":         ("/api/service",        ("action",)),
     "config":          ("/api/config",         None),
@@ -69,7 +69,7 @@ class KMSService:
             req = urllib.request.Request(
                 "%s%s?token=%s" % (self.url, path, self.token()),
                 headers={"User-Agent": "nimbus-panel"})
-            # 本机回环调用要绕开环境里的 HTTP(S)_PROXY，否则会被代理掉
+            # 本机回环调用需绕过环境变量 HTTP(S)_PROXY，否则请求会被代理转发
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(req, timeout=self.timeout) as r:
                 raw = r.read().decode("utf-8", "replace")
@@ -78,11 +78,11 @@ class KMSService:
             return None
 
     def summary(self):
-        """服务状态 + 激活统计。取不到就如实说不可用，不编数据。"""
+        """服务状态 + 激活统计。读取失败时如实返回不可用，不构造数据。"""
         s = self._get("/api/summary")
         if s is None:
             return {"available": False,
-                    "hint": "读不到 KMS 服务（v1m-dash 未运行，或 token 不可读）"}
+                    "hint": "无法读取 KMS 服务（v1m-dash 未运行，或 token 不可读）"}
         return {"available": True, "service": s.get("service") or {},
                 "stats": s.get("stats") or {}}
 
@@ -90,7 +90,7 @@ class KMSService:
         """限流与封禁现状。"""
         d = self._get("/api/limits")
         if d is None:
-            return {"available": False, "hint": "读不到限流状态"}
+            return {"available": False, "hint": "无法读取限流状态"}
         return dict(d, available=True)
 
     def config(self):
@@ -112,7 +112,7 @@ class KMSService:
 
     def all(self):
         s = self.summary()
-        # 配置与激活明细在另外两个接口里；取不到就留空，不让整页变成不可用
+        # 配置与激活明细位于另外两个接口；读取失败时留空，避免整页被判定为不可用
         if s.get("available"):
             s["config"] = self.config()
             s["events"] = self.events()
@@ -139,8 +139,8 @@ class KMSService:
         """把一次写操作转给原面板。
 
         **走白名单，不开放任意转发。** 那个面板除了 KMS 还带着自己的账户管理接口
-        （创建账户、改密码），全量转发等于把它的登录体系一并交给这里的任何使用者。
-        所以每个操作只挑它自己需要的参数，多余的参数直接丢掉。
+        （创建账户、修改密码），全量转发等于把它的登录体系一并交给这里的任何使用者。
+        因此每个操作只选取自身需要的参数，其余参数直接丢弃。
 
         params 为 None 的操作（config）是个例外：vlmcsd 的配置项由对方自己的
         validate() 逐项校验，这里不重复实现一遍规则。
@@ -171,7 +171,7 @@ class _DemoKMS:
     """演示用的 KMS 数据，结构与真机一致，界面代码不用分叉。"""
 
     def action(self, op, params, audit=None, client=""):
-        """演示模式：只回成功，不真的改变任何东西（与 run_action 的 dry 同一思路）。"""
+        """演示模式：只返回成功，不产生任何实际变更（与 run_action 的 dry 语义一致）。"""
         return {"ok": True, "demo": True, "op": op, "applied": params or {}}
 
     def all(self):

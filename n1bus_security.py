@@ -20,15 +20,15 @@ from n1bus_system import Ports
 
 
 # --------------------------------------------------------------------------
-# 账户：第一次进来先设一个，之后用户名 + 密码登录
+# 账户：首次启动时创建一个账户，此后以用户名 + 密码登录
 # --------------------------------------------------------------------------
 PASSWORD_MIN = 8
 SESSION_TTL = 7 * 86400          # 登录态保持 7 天，过期要重新登录
 LOGIN_WINDOW = 300               # 登录失败的统计窗口（秒）
 LOGIN_MAX_FAIL = 8               # 窗口内失败超过这个数就封
 # 递增封禁：第一次 5 分钟，再犯 30 分钟，第三次起 6 小时。
-# 24 小时内没再犯就降回第一档；成功登录直接清零 —— 正常用户打错几次密码不会把自己
-# 越封越久，而持续爆破的家伙会一路封到 6 小时。
+# 24 小时内未再失败则降回第一档；成功登录直接清零 —— 正常用户多次输错密码不会导致
+# 自身封禁时长递增，而持续暴力破解的来源会逐级升至 6 小时。
 LOGIN_BLOCK_TIERS = (300, 1800, 21600)
 LOGIN_FORGET = 86400
 USER_RE = re.compile(r"^[A-Za-z0-9_.\-]{2,32}$")
@@ -75,9 +75,9 @@ def verify_password(password, stored):
 
 
 class LoginGuard:
-    """登录失败的摩擦：同一来源在窗口内错太多次就封，而且**一次比一次久**。
+    """登录失败节流：同一来源在统计窗口内失败次数超限即封禁，且封禁时长逐级递增。
 
-    * 只按来源 IP 算，不按账户 —— 攻击者没法把你锁在门外，你打错密码也不连累自己。
+    * 仅按来源 IP 计数，不按账户计数 —— 攻击者无法借此锁死合法账户，合法用户输错密码也不会波及该账户。
     * 状态落盘到 loginguard.json（0600）：重启面板不该等于替攻击者清空记录。
     * 成功登录清零；24 小时没再犯也降回第一档。所以只有"持续爆破"才会被封到 6 小时。
     """
@@ -132,7 +132,7 @@ class LoginGuard:
             e["blocked_until"] = 0
             e["fails"] = [t for t in (e.get("fails") or []) if now - t < self.window]
             if e.get("last") and now - e["last"] > self.forget:
-                e["level"] = 0                                      # 很久没犯，档位降回去
+                e["level"] = 0                                      # 距上次失败已超过 forget 窗口：封禁档位重置
             return 0
 
     def fail(self, ip):
@@ -156,7 +156,7 @@ class LoginGuard:
             return blocked, secs, int(e.get("level") or 0)
 
     def ok(self, ip):
-        """登录成功：这个来源的记录整个清掉。"""
+        """登录成功：删除该来源的全部记录。"""
         with self.lock:
             if self.state["ips"].pop(ip, None):
                 self._save()
@@ -175,7 +175,7 @@ class LoginGuard:
             return was
 
     def _prune(self, now):
-        """别让文件无限长：很久没动静、又没在封禁中的来源直接忘掉。"""
+        """限制状态文件增长：长时间无活动且当前不在封禁中的来源予以清除。"""
         for k in [k for k, v in self.state["ips"].items()
                   if isinstance(v, dict) and now - float(v.get("last") or 0) > self.forget * 7
                   and float(v.get("blocked_until") or 0) < now]:
@@ -261,7 +261,7 @@ class Accounts:
         with self.lock:
             u = self.data["users"].get(name)
             if not u:
-                return False, "没有这个账户"
+                return False, "该账户不存在"
             u["hash"] = hash_password(password)
             self._save()
         return True, ""
@@ -269,7 +269,7 @@ class Accounts:
     def delete(self, name):
         with self.lock:
             if name not in self.data["users"]:
-                return False, "没有这个账户"
+                return False, "该账户不存在"
             if len(self.data["users"]) <= 1:
                 return False, "这是最后一个账户，删了就没人能登录了"
             self.data["users"].pop(name)
@@ -282,7 +282,7 @@ class Accounts:
         with self.lock:
             u = self.data["users"].get((name or "").strip())
         if not u:
-            # 不存在也照样算一次哈希，别让响应时间暴露"这个用户名存在"
+            # 用户不存在时同样执行一次哈希运算，避免响应时间泄露该用户名是否存在
             verify_password(password or "", hash_password("dummy-password"))
             return False
         return verify_password(password or "", u["hash"])
@@ -410,7 +410,7 @@ class Security:
 
         以前一次 /api/security 里 ufw 被跑两遍：firewall() 一次 `status verbose`、
         blocked() 一次 `status`，各 ~88 ms（真机实测）。两处要的字段同一份 verbose
-        输出里都有，合成一次 —— 顺带少 fork 一个进程（2 vCPU 上 fork 也是成本）。
+        输出中均已包含所需字段，因此合并为一次调用，同时减少一次进程 fork（在 2 vCPU 上 fork 亦有开销）。
         """
         if not shutil.which("ufw"):
             return {"available": False, "out": "", "hint": "未安装 ufw", "error": ""}
@@ -456,7 +456,7 @@ class Security:
     # 一行 ufw 规则：<左侧：目标[ (v6)]>  <动作[ 方向]>  <来源>。
     # 方向只有在 `ufw status verbose` 里才出现（ALLOW IN / ALLOW OUT / ALLOW FWD），
     # 普通 `ufw status` 会省略它。ufw_raw() 用的正是 verbose，所以这里能拿到方向；
-    # 万一拿不到，按 ufw 自己的默认值 in 处理。
+    # 若无法获取，按 ufw 自身的默认值 in 处理。
     RE_UFW_ACT = re.compile(r"\s(ALLOW|DENY|LIMIT|REJECT)(?:\s+(IN|OUT|FWD))?\s+(.+)$")
     RE_UFW_SIMPLE = re.compile(r"^(\d{1,5})/(tcp|udp)$")
 
@@ -510,7 +510,7 @@ class Security:
                           "from": m.group(3).strip(), "v6": v6,
                           "port": simple.group(1) if simple else "",
                           "proto": simple.group(2) if simple else "",
-                          # 转发方向的删除语法与 in/out 不同，面板不代做
+                          # 转发方向的删除语法与 in/out 不同，面板不代为执行
                           "simple": bool(simple) and direction in ("in", "out")})
 
         if ports is None:
@@ -537,7 +537,7 @@ class Security:
         for k in sorted(merged, key=lambda k: (k[0] != "in", int(k[1]))):
             e = merged[k]
             lp = listen.get((e["port"], e["proto"])) or []
-            # 顺带把「这条规则背后有没有服务在听」带上，界面就不必自己去交叉两张表
+            # 同时返回该规则对应的监听服务，界面无需自行交叉比对两张表
             e["listen"] = (lp[0].get("process") or "") if lp else ""
             e["docker"] = bool(lp) and (lp[0].get("process") or "") == "docker-proxy"
             allowed.append(e)
@@ -606,7 +606,7 @@ class Security:
             n = len([l for l in read_text(str(auth)).splitlines()
                      if l.strip() and not l.lstrip().startswith("#")])
         return {"config": cfg, "authorized_keys": n,
-                "note": "authorized_keys 为空时不要关密码登录，否则会把自己锁在外面" if not n else ""}
+                "note": "authorized_keys 为空时请勿关闭密码登录，否则将无法登录该主机" if not n else ""}
 
 
 class Enforcer:
@@ -648,11 +648,11 @@ class Enforcer:
             return False, {"error": "%s: %s" % (type(e).__name__, e)}
 
     def poll_once(self):
-        """跑一轮：拉取 → 执行 → 回报。返回这一轮的结果（也给界面看）。"""
+        """执行一轮：拉取 → 执行 → 回报。返回值同时供界面展示。"""
         result = {"ts": int(time.time()), "ok": True, "banned": [], "unbanned": [], "error": ""}
         ok, data = self._call("/api/enforce/pending")
         if not ok:
-            result.update(ok=False, error=data.get("error", "拉不到待执行列表"))
+            result.update(ok=False, error=data.get("error", "无法获取待执行列表"))
             self._remember(result)
             return result
         for item in (data.get("ban") or []):
@@ -664,7 +664,7 @@ class Enforcer:
             if run.get("ok"):
                 result["banned"].append(ip)
             else:
-                result.update(ok=False, error="封 %s 失败：%s" % (ip, run.get("error") or run.get("err")))
+                result.update(ok=False, error="封禁 %s 失败：%s" % (ip, run.get("error") or run.get("err")))
         for item in (data.get("unban") or []):
             ip, reason, detail = item.get("ip"), item.get("reason", ""), item.get("detail", "")
             run = run_action("ufw.undeny", {"ip": ip}, "v1m-dash", self.audit)
@@ -784,7 +784,7 @@ class Defender:
                             self.state[k] = v
                     self.state["exempt"] = [str(x) for x in (self.state.get("exempt") or [])]
                     self.state["log"] = list(self.state.get("log") or [])[-AUTOBAN_KEEP_LOG:]
-                    # 落盘值同样要夹：手上的 defender.json 可能是旧版本、或被人手改过
+                    # 落盘值同样需要经过 clamp：本机 defender.json 可能来自旧版本或被人工修改
                     self.state["threshold"] = _clamp_threshold(self.state.get("threshold"))
         except (OSError, ValueError):
             pass

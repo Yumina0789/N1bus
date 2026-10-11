@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """演示模式冒烟测试：把面板拉起来，走一遍「首次设置账户 → 登录 → 账户管理」与所有接口。
 
-不碰任何真实系统状态（demo 数据源 + 临时数据目录），所以 CI 上随便跑。
+不触碰任何真实系统状态（demo 数据源 + 临时数据目录），因此可在 CI 中安全执行。
 """
 import json
 import pathlib
@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-try:                       # Windows 控制台默认 GBK，✔ 这种字符会炸；CI 上是 UTF-8
+try:                       # Windows 控制台默认 GBK，✔ 这类字符会导致编码错误；CI 上为 UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:          # noqa: BLE001
     pass
@@ -66,7 +66,7 @@ try:
         except Exception:
             time.sleep(0.25)
     else:
-        sys.exit("面板没起来")
+        sys.exit("面板未启动")
 
     print("== 首次使用：还没有账户 ==")
     st, body = call("/api/auth", auth=False)
@@ -91,8 +91,8 @@ try:
     ok(json.loads(body)["need_setup"] is False, "现在 need_setup 变成 false 了")
 
     print("== 接口（用会话令牌） ==")
-    # 页面本身要单独查内容：只查状态码是不够的（曾经整页被 JSON 编码后发出去，
-    # 浏览器当纯文本渲染，表现就是"没有 CSS"，而状态码一直是 200）
+    # 页面内容需单独校验：仅检查状态码不足（曾经整页被 JSON 编码后发送，
+    # 浏览器按纯文本渲染，表现为「没有 CSS」，而状态码始终是 200）
     st, body = call("/")
     page = body.decode("utf-8", "replace")
     ok(st == 200 and page.lstrip().lower().startswith("<!doctype html>"),
@@ -158,7 +158,7 @@ try:
                     {"name": "second", "password": "second-pass3", "actor_password": "错的"})
     ok(st == 403, "当前密码不对时改不了密码")
     st, body = call("/api/overview", cred=second_session)
-    ok(st == 401, "被改密码后，那个账户的旧会话失效了")
+    ok(st == 401, "被修改密码后，那个账户的旧会话失效了")
     st, body = call("/api/login", "POST", {"name": "second", "password": "second-pass2"}, auth=False)
     ok(st == 200, "用新密码能登录")
 
@@ -210,7 +210,7 @@ try:
         ok(False, "该响应不是合法 JSON：%s" % e)
 
     print("== 防火墙端口开放：参数校验与方向 ==")
-    # 端口是公网暴露面的开关，参数闸门必须严：这些都不该被放过去
+    # 端口决定公网暴露面，参数校验必须严格：以下输入都不应通过
     for port, why in (("0", "端口 0"), ("65536", "端口越界"), ("abc", "非数字端口"),
                       ("22/tcp", "把端口和协议写在一起"), ("", "空端口")):
         st, body = call("/api/action", "POST",
@@ -272,7 +272,7 @@ try:
     ok(st == 403 or st == 429, "还在限流冷却里，登录仍被挡（%s）" % st)
 
     print("== 递增封禁：一次比一次久，且重启不丢 ==")
-    # 刚才已经退出登录了，这一段改用服务 token —— 也正是「自己被封了怎么救」的正规姿势
+    # 上文已退出登录，本段改用服务 token —— 也正是「管理员来源被封后如何恢复」的规范做法
     st, body = call("/api/accounts", cred=TOKEN)
     g = json.loads(body).get("guard") or {}
     ok(g.get("tiers") == [300, 1800, 21600], "档位是 5 分钟 → 30 分钟 → 6 小时：%s" % g.get("tiers"))
@@ -348,8 +348,8 @@ try:
         ok(any(s.get("action") == "ban" and s.get("ip") == "203.0.113.9" for s in seen),
            "把「封这个 IP」回报给了面板：%s" % seen)
         ok(seen and seen[0].get("ok") is False,
-           "本机封不了（没 ufw 或不是 root）时如实回报失败，不假装成功")
-        # 只断言「失败必须带原因」，别断言具体文案 —— 不同环境差别很大
+           "本机无法封禁（无 ufw 或非 root）时如实回报失败，不谎报成功")
+        # 仅断言「失败必须带原因」，不断言具体文案 —— 不同环境差异较大
         ok(res["ok"] is False and bool(res.get("error")),
            "失败原因如实带回来了：%s" % (res.get("error") or "")[:70])
         ok((workdir / "audit2.log").exists(), "执法经过写进了审计")
@@ -360,8 +360,8 @@ try:
         ok(any(s.get("action") == "unban" for s in seen), "解封请求也会被回报回去")
 
         print("== 自动永久封禁：判定与保护条件 ==")
-        # 这一层的风险集中在"误封"上，因此测试重点是"该放过的有没有放过"，
-        # 而不只是"会不会封"。dry=True 只记录不实际执行 ufw。
+        # 该模块的风险集中在「误封」，因此测试重点是「应放过的来源是否被放过」，
+        # 而不仅是「是否执行封禁」。dry=True 只记录不实际执行 ufw。
         dpath = workdir / "defender.json"
         d = n1bus_security.Defender(dpath, threshold=10, enabled=True,
                              skip=n1bus_util.parse_networks(n1bus_security.PRIVATE_NETS),
@@ -404,8 +404,8 @@ try:
 
         # 回归：阈值下限必须对**所有**入口生效。configure() 会夹到下限，但 __init__
         # 直接 int(threshold)，main() 又把 --auto-ban-after 原样传进来 —— 于是
-        # `--auto-ban-after 1` 能让「失败 2 次即永久封禁」，正好打在 ADR 0010 自认的
-        # 唯一实际代价（误封风险）上。
+        # `--auto-ban-after 1` 能让「失败 2 次即永久封禁」，恰好对应 ADR 0010 中承认的
+        # 唯一实际代价（误封风险）。
         d2 = n1bus_security.Defender(None, threshold=1, enabled=True, dry=True)
         ok(d2.state["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
            "__init__ 也把阈值夹到下限 %d（--auto-ban-after 1 不再生效）"
@@ -430,7 +430,7 @@ try:
         # 回归测试。带参数方法的缓存键是 (方法名, 参数元组)，而 clear_data_cache
         # 曾经对所有键调用 .startswith() —— 缓存里一旦存在这种键就抛 AttributeError，
         # 而且异常发生在**动作执行完、审计写完之后的清缓存环节**，所以现象是
-        # 「动作明明成功了，面板却报 JSON 解析失败」。这里直接测函数本身。
+        # 「动作已成功执行，面板却报 JSON 解析失败」。此处直接测试函数本身。
         n1bus_cache._CACHE.clear()
         n1bus_cache._CACHE["Services.list"] = (0.0, None)
         n1bus_cache._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)

@@ -2,9 +2,9 @@ const CRED_KEY = "n1bus_session", THEME_KEY = "n1bus_theme";
 let TOKEN = new URLSearchParams(location.search).get("token") || localStorage.getItem(CRED_KEY) || "";
 let ME = "", AUTH = {}, META = {}, ACTIONS = [], UNITS = [], DK_CONTAINERS = [],
     curTab = "overview", pollTimer = null,
-    // 主人有没有自己切过视图。boot() 收尾那次 showView("overview") 只负责「开屏落位」，
-    // 一旦它跑得比主人的手慢（首屏要并行预热 11 个 loader，几秒），
-    // 无条件执行就会把主人刚点开的页踹回主页 —— 这个标记就是那道闸。
+    // 用户是否已自行切换过视图。boot() 收尾那次 showView("overview") 只负责「开屏落位」，
+    // 一旦它慢于用户操作（首屏需并行预热 11 个 loader，耗时数秒），
+    // 无条件执行会把用户刚打开的页面切回主页 —— 该标记就是这道闸。
     viewPinned = false;
 
 /* --- 工具 ------------------------------------------------------------- */
@@ -39,9 +39,9 @@ function labelTables(){
   });
 }
 /* 折叠卡片的标题行只留标题与状态数字：说明文字（summary 里的 .q）直接移除。
-   CSS 里那条 details.fold:not([open])>summary .q{display:none} 只是**兜底**
-   （JS 还没跑到时别让它露出来），不是「展开就该显示」。
-   所以：往 summary 的 .q 里写内容是白写，会被这里删掉。
+   CSS 里那条 details.fold:not([open])>summary .q{display:none} 仅作为降级保护
+   （JS 尚未执行时避免露出内容），并非「展开即应显示」。
+   因此向 summary 的 .q 写入内容不会生效，会被此处移除。
    真要展示的摘要，写进 .foldbody。 */
 function stripFoldNotes(){
   document.querySelectorAll("details.fold > summary > .q").forEach(q => q.remove());
@@ -160,7 +160,7 @@ function toast(msg, isErr){
 }
 
 /* --- 询问框 -----------------------------------------------------------
-   网页风格的 confirm / alert / prompt 替身。原生弹窗改不了样式，和页面语言割裂。
+   网页风格的 confirm / alert / prompt 替代实现。原生弹窗无法定制样式，与页面风格不一致。
    同一个 #ask 三种角色：danger 换红色确认键，input 露出输入框，alert 藏掉取消。 */
 let _askResolve = null;
 function _askOpen(opts){
@@ -175,8 +175,8 @@ function _askOpen(opts){
   inp.classList.toggle("hidden", !opts.input);
   if(opts.input) inp.value = opts.value || "";
   // 多字段表单：每个 field = {key, label, type, placeholder, value}。
-  // 用它就不必把「新增账户」「修改密码」这类表单常驻在页面上占一整块 —— 那是
-  // 列表页该有的样子：列表 + 按钮，表单进弹窗（参考 1Panel 的做法）。
+  // 用它就不必把「新增账户」「修改密码」这类表单常驻页面占用版面 —— 列表页应保持
+  // 「列表 + 按钮」形态，表单放入弹窗（参考 1Panel 的做法）。
   const fbox = document.getElementById("askFields");
   const fields = opts.fields || [];
   fbox.classList.toggle("hidden", !fields.length);
@@ -240,7 +240,7 @@ function askForm(body, fields, opts){
 let _forceFresh = 0;
 async function api(path, opts = {}){
   // 「刷新」按钮走这条路：带一次 fresh=1 绕过服务端那 15/30 秒的只读缓存。
-  // 不带的话点「刷新」拿到的还是缓存里那份旧数据，看着就像"没反应"。
+  // 不带的话点「刷新」拿到的仍是缓存数据，表现为「无响应」。
   // 用计数器而不是布尔：system 视图一次要拉 8 个接口，得让整轮都绕过；
   // 否则只有第一个 bypass，其余还是缓存。
   let p = path;
@@ -252,8 +252,8 @@ async function api(path, opts = {}){
     "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", ...(opts.headers || {})}});
   if(r.status === 401){ showLogin(); throw new Error("unauthorized"); }
   // 后端在处理中途抛异常时，连接会被直接关掉，响应体是空的。此时若直接 r.json()，
-  // 用户看到的是 "Unexpected end of JSON input" —— 那句话对排查没有任何帮助，
-  // 也掩盖了「动作其实已经执行、审计也写了」这个事实。所以先把原文读出来再判断。
+  // 用户看到的是 "Unexpected end of JSON input" —— 该提示对排查没有帮助，
+  // 也掩盖了「动作已执行、审计已写入」这一事实。因此先读取原始响应体再判断。
   const text = await r.text();
   if(!text.trim()){
     throw new Error("服务端没有返回内容（HTTP " + r.status + "）。"
@@ -359,7 +359,7 @@ async function loadOverview(){
 
     /* 顶部四个大数字 */
     set("stSvc", sv.available ? sv.running + " / " + sv.total : "–");
-    set("stSvcSub", sv.available ? (sv.failed ? sv.failed + " 个失败单元" : "没有失败单元") : "这台机器没有 systemd");
+    set("stSvcSub", sv.available ? (sv.failed ? sv.failed + " 个失败单元" : "无失败单元") : "本机未运行 systemd");
     set("stDk", (dk.running || 0) + " / " + (dk.total || 0));
     set("stProc", num(pr.total));
     set("stProcSub", "僵尸 " + num(pr.zombie) +
@@ -486,7 +486,7 @@ function drawSpark(series){
 /* --- 服务 ------------------------------------------------------------- */
 async function loadServices(){
   // limit 只是个上限（真机 210 个单元，给 500 是防异常膨胀）；搜索框要在全部单元里找，
-  // 所以后端默认不裁，这里也不指望它裁 —— 省的是每个单元 body 里那几个没用的字段（P9）。
+  // 所以后端默认不裁，本层也不依赖它裁剪 —— 省略的是每个单元 body 中无用的字段（P9）。
   const j = await api("/api/services?limit=500");
   UNITS = j.units || [];
   document.getElementById("svcMeta").textContent = j.available
@@ -508,7 +508,7 @@ function filterUnits(){
     (!q || u.unit.toLowerCase().includes(q) || (u.desc || "").toLowerCase().includes(q)) &&
     (!only || u.active === only));
   // 失败项置顶。systemd 本身按字母序给列表，而真机上有 147 个单元 —— 失败的那一两个
-  // 会埋在中间，读者得一路滚下去找。恰恰失败项是这一页最该先看到的。过渡态排第二。
+  // 会夹在列表中部，需要滚动较长时间才能找到，而失败项恰是本页最需要优先看到的内容。过渡态次之。
   const rank = u => u.active === "failed" ? 0
     : (/^(activating|deactivating|reloading)$/.test(u.active) ? 1 : 2);
   rows.sort((a, b) => rank(a) - rank(b) || a.unit.localeCompare(b.unit));
@@ -559,9 +559,9 @@ async function openUnit(unit){
 }
 
 /* --- Docker ----------------------------------------------------------- */
-/* 容器统计是服务端后台线程慢慢取的（docker stats 一条就要 1~2 秒）。
-   这一轮还没有数时接口会带 stats_pending，隔一会儿自己再要一次，
-   别让 CPU/内存那几列一直空着 —— 但绝不为它把整页卡住。 */
+/* 容器统计由服务端后台线程异步采集（docker stats 单条需 1~2 秒）。
+   本轮尚无数据时接口会返回 stats_pending，稍后重新请求，
+   避免 CPU/内存列长期为空，但不因此阻塞整页渲染。 */
 let dkStatsTimer = 0;
 function scheduleDockerStats(){
   if(dkStatsTimer) return;
@@ -600,7 +600,7 @@ async function dkAction(name){
   if(!dkCur){ toast("请先选择容器", true); return; }
   if(name === "docker.rm" &&
      !await askConfirm("删除容器 <b>" + esc(dkCur) + "</b> ？\n\n容器会被强制停止并移除；数据卷不受影响，" +
-              "compose 起的可以用 docker compose up -d 重建。",
+              "由 compose 创建的容器可用 docker compose up -d 重建。",
               {title: "删除容器", danger: true, okText: "删除"})) return;
   runAction(name, {name: dkCur});
 }
@@ -633,7 +633,7 @@ async function reloadDockerLogs(){
   document.getElementById("dkLogs").innerHTML = bad + (rows ||
     `<div class="empty">${j.grep ? "没有匹配「" + esc(j.grep) + "」的日志" : "暂无日志"}</div>`);
 }
-/* 镜像 = 容器的模板。这一块就两个用处：看占了多少空间、有没有历史构建残留可清理 */
+/* 镜像 = 容器的模板。此区块有两个用途：查看占用空间、检查是否存在可清理的历史构建残留 */
 function parseSize(s){
   const m = /([\d.]+)\s*([KMGTP]?B)/i.exec(String(s || ""));
   if(!m) return 0;
@@ -722,7 +722,7 @@ async function loadSecurity(){
     `<div class="k">公钥数</div><div class="v mono">${num(ssh.authorized_keys)}</div>` +
     (ssh.note ? `<div class="k"></div><div class="v warn-v">${esc(ssh.note)}</div>` : "");
   // fail2ban：把每个 jail 的关键计数抽出来做表，原始输出留在下面备查。
-  // 原先这些和 ufw 的规则原文挤在同一张卡片里，那块文本已由「防火墙端口」承担。
+  // 原先这些内容与 ufw 规则原文同处一张卡片，该部分文本现已由「防火墙端口」承担。
   const f2bNum = (text, label) => {
     const m = new RegExp(label + ":\\s*(\\d+)").exec(text || "");
     return m ? m[1] : "";
@@ -772,13 +772,13 @@ async function loadSecurity(){
 /* ufw 的规则区分方向：`ALLOW IN` 与 `ALLOW OUT` 是两条独立规则，`ufw allow 80/tcp`
    与 `ufw allow out 80/tcp` 互不覆盖。IPv4 与 IPv6 同样是两条独立规则（一次 allow
    会同时写入两条），所以后端按「方向 + 端口 + 协议」合并之后再给到界面。
-   两个容易误判的点写在这里，免得以后照着界面上的数字下错结论：
+   两个容易误判的点写在这里，以免日后依据界面数字得出错误结论：
      * Docker 发布的端口绕过 ufw —— docker-proxy 把转发规则直接写进 iptables，
        因此「ufw 里没有这条规则」不等于外部访问不了；
      * 只监听 127.0.0.1 的服务本来就不对外，不会被列为「待放行」。 */
 function portUnallowBtn(dir, port, proto){
   return `<button class="act ghost mini"
-    onclick="portUnallow('${esc(dir)}','${esc(port)}','${esc(proto)}')">关闭</button>`;
+    onclick="portUnallow('${esc(dir)}','${esc(port)}','${esc(proto)}')">移除规则</button>`;
 }
 function renderPorts(a){
   if(!a) return;
@@ -813,7 +813,7 @@ function renderPorts(a){
       <td class="mono hint">${esc(x.from)}</td></tr>`).join("")
     || '<tr><td colspan="4" class="empty">没有这类规则</td></tr>';
 
-  // 待处理提示：这是这张卡片真正有用的部分 —— 直接把「该放行却没收的」摆出来
+  // 待处理提示：该内容是本卡片的核心价值 —— 直接列出「已监听但未放行」的端口
   const blocks = [];
   if(a.policy) blocks.push(
     '<div class="kv wide"><div class="k">默认策略</div><div class="v mono">' +
@@ -821,7 +821,7 @@ function renderPorts(a){
   const need = (a.uncovered || []).filter(x => !x.docker);
   if(need.length) blocks.push(
     '<div class="kv wide"><div class="k warn-v">待放行</div><div class="v">' +
-    need.map(x => `${num(x.port)}/${esc(x.proto)}　${esc(x.process || "未知进程")} 在监听，但外部访问不到
+    need.map(x => `${num(x.port)}/${esc(x.proto)}　${esc(x.process || "未知进程")} 在监听，但无法从外部访问
       <button class="act mini" style="margin-left:8px"
         onclick="portAllowQuick('${esc(x.port)}','${esc(x.proto)}')">放行</button>`).join("<br>") +
     '</div></div>');
@@ -833,9 +833,9 @@ function renderPorts(a){
   if((a.unmatched || []).length) blocks.push(
     '<div class="kv wide"><div class="k">可清理</div><div class="v hint">' +
     (a.unmatched || []).map(x => `${num(x.port)}/${esc(x.proto)}`).join("、") +
-    '　已放行但本机没有服务监听，规则不产生效果</div></div>');
+    '　已放行但本机无服务监听，该规则不产生实际效果</div></div>');
   if(!a.active && a.available) blocks.push(
-    '<div class="kv wide"><div class="k"></div><div class="v warn-v">ufw 当前未启用，下面列的是已保存的规则。</div></div>');
+    '<div class="kv wide"><div class="k"></div><div class="v warn-v">ufw 当前未启用，以下为已保存的规则。</div></div>');
   document.getElementById("sePortTips").innerHTML = blocks.join("");
 }
 function portAllowQuick(port, proto){
@@ -848,7 +848,7 @@ async function portAllow(){
   const dir = document.getElementById("sePortDir").value;
   const proto = document.getElementById("sePortProto").value;
   const port = parseInt(document.getElementById("sePortNum").value, 10);
-  if(!port || port < 1 || port > 65535){ toast("端口要填 1-65535 的整数", true); return; }
+  if(!port || port < 1 || port > 65535){ toast("端口须为 1-65535 之间的整数", true); return; }
   await runAction("ufw.allow", {port: String(port), proto, dir});
   document.getElementById("sePortNum").value = "";
 }
@@ -975,7 +975,7 @@ function renderGuard(g){
   const el = document.getElementById("seGuard");
   if(!el) return;
   if(!g){
-    el.innerHTML = '<div class="k">面板登录限流</div><div class="v hint">后端未上报</div>';
+    el.innerHTML = '<div class="k">面板登录限流</div><div class="v hint">服务端未提供该数据</div>';
     return;
   }
   const blocked = g.blocked || [];
@@ -1026,9 +1026,9 @@ async function loadNet(){
 /* --- 通用渲染小工具 --------------------------------------------------- */
 /* 表格增量更新（P8）。
    以前每次刷新都是 `tbody.innerHTML = rows.map(...)`：服务表两百来行、每 10 秒整块重建，
-   浏览器要丢掉全部旧节点再解析一遍 HTML —— 白白的 GC 与布局抖动（2 vCPU 的机器上更明显）。
+   浏览器需丢弃全部旧节点并重新解析 HTML —— 产生无谓的 GC 与布局抖动（在 2 vCPU 机器上更明显）。
    现在按行的 key 比对：key 序列一致就只改真的变了的单元格，行数或顺序变了才整块重建。
-   cellsOf(item, i) 返回每格的 {c: class, s: style, h: html}；列表为空时用 emptyRow 兜底。 */
+   cellsOf(item, i) 返回每格的 {c: class, s: style, h: html}；列表为空时用 emptyRow 作为降级输出。 */
 /* 单元格上的额外属性（data-full / onclick 之类）整串换掉：
    先把上次写上的摘下来，再写上这次的。 */
 function setCellAttrs(td, want){
@@ -1068,7 +1068,7 @@ function patchRows(tbody, items, keyOf, cellsOf, attrOf, emptyRow){
         const cls = w.c || "", sty = w.s || "", attrs = w.a || "";
         const html = String(w.h == null ? "" : w.h);
         if(td.__v === html && td.__c === cls && td.__s === sty && td.__a === attrs)
-          continue;                                       // 这一格没变，别碰 DOM
+          continue;                                       // 该单元格无变化，跳过 DOM 写入
         if(td.__c !== cls) td.className = cls;
         if(td.__s !== sty) td.setAttribute("style", sty);
         setCellAttrs(td, attrs);
@@ -1092,7 +1092,7 @@ function patchRows(tbody, items, keyOf, cellsOf, attrOf, emptyRow){
   }));
 }
 /* --- 系统（1Panel 参考切片：清理 / 网络 / 磁盘） ---------------------- */
-/* 键值两列表的通用渲染；pairs 为空时给一行兜底 */
+/* 键值两列表的通用渲染；pairs 为空时输出一行降级文案 */
 function kvRows(pairs, empty){
   if(!pairs || !pairs.length) return `<div class="hint">${esc(empty || "无数据")}</div>`;
   return '<div class="kv wide">' + pairs.map(([k, v]) =>
@@ -1122,8 +1122,8 @@ async function loadCleanup(){
   if(au){
     const c = j.autoremove_candidates || [];
     au.innerHTML = c.length
-      ? '<div class="hint">autoremove 候选（面板不代执行）：' + c.map(esc).join("、") + "</div>"
-      : '<div class="hint">autoremove 没有候选包</div>';
+      ? '<div class="hint">autoremove 候选（面板不代为执行）：' + c.map(esc).join("、") + "</div>"
+      : '<div class="hint">autoremove 无候选包</div>';
   }
 }
 async function loadBackup(){
@@ -1138,9 +1138,9 @@ async function loadBackup(){
   if(meta) meta.textContent = a.exists ? ("已打包 " + bytes(a.size)) : "未生成备份";
   const hint = document.getElementById("sysBkHint");
   if(hint) hint.innerHTML = a.exists
-    ? ('恢复方式（SSH 里以 root 执行）：<code class="mono">cd /var/lib/n1bus/backups && ' +
+    ? ('恢复方式（在 SSH 中以 root 执行）：<code class="mono">cd /var/lib/n1bus/backups && ' +
        esc(j.restore_hint) + "</code>")
-    : "点「现在打包」会生成 <code class=\"mono\">latest.tar.gz</code>（面板数据 + KMS 数据卷 + Caddy 配置）。";
+    : "点击「立即打包」将生成 <code class=\"mono\">latest.tar.gz</code>（面板数据 + KMS 数据卷 + Caddy 配置）。";
 }
 async function downloadBackup(){
   const r = await fetch("/api/backup/file", {headers: {"Authorization": "Bearer " + TOKEN}});
@@ -1159,17 +1159,17 @@ async function loadAutostart(){
   if(!el) return;
   el.innerHTML = (j.units || []).map(u => {
     // 三态：
-    //   受保护            → 不给动
+    //   受保护            → 不可操作
     //   static / masked  → systemctl 开关不了（snap.lxd.daemon 那种没有 [Install] 段的），
     //                      显示「–」而不是按钮 —— 否则点下去必然失败、状态还会跳回去
     //   enabled/disabled → 双向开关
     const canToggle = !u.protected && u.togglable !== false;
     const action = u.enabled ? "boot.disable" : "boot.enable";
-    const text = u.enabled ? "取消自启" : "自启";
+    const text = u.enabled ? "取消开机自启" : "开机自启";
     const stateCell = u.protected ? dot("warn", "受保护，面板不允许改")
                                   : (u.enabled ? dot("info", "已启用")
                                                : (canToggle ? dot("mute", "未启用")
-                                                            : dot("mute", "不可开关")));
+                                                            : dot("mute", "不可切换")));
     const actCell = canToggle
       ? `<button class="act ghost mini"
            onclick="runAction('${action}',{unit:'${esc(u.unit)}'},this)">${text}</button>`
@@ -1183,7 +1183,7 @@ async function loadAutostart(){
   const meta = document.getElementById("sysBootMeta");
   if(meta){
     const n = (j.units || []).filter(u => u.enabled).length;
-    meta.textContent = n + " 个自启服务";
+    meta.textContent = n + " 个开机自启服务";
   }
   const dk = document.getElementById("sysBootDk");
   if(dk) dk.innerHTML = (j.containers || []).map(c =>
@@ -1192,19 +1192,19 @@ async function loadAutostart(){
       <td>${c.autostart ? dot("ok", "会自启") : dot("mute", "不会自启")}</td>
       <td class="num"><button class="act ghost mini"
         onclick="runAction('docker.autostart',{name:'${esc(c.name)}',on:${c.autostart ? "false" : "true"}},this)">
-        ${c.autostart ? "取消自启" : "自启"}</button></td></tr>`).join("") ||
+        ${c.autostart ? "取消开机自启" : "开机自启"}</button></td></tr>`).join("") ||
     '<tr><td colspan="4" class="empty">没有容器</td></tr>';
 }
 /* DeepSeek Harness 的进场链接与内嵌。
    dsh 只认「一次性启动 token 换会话 cookie」这一种进场方式：没有 token，
-   /dsh/ 一律回一句纯文本 401。而那个 token 每次启动现生成、只打在容器日志里、
-   不落盘 —— 所以链接必须现从后端取（后端去日志里捞最新那条），不能在页面里硬编。 */
+   /dsh/ 一律返回纯文本 401。该 token 每次启动时生成、仅输出到容器日志、
+   不落盘 —— 因此链接必须由后端实时获取（后端从日志中提取最新一条），不能在页面中硬编码。 */
 let _dshWatch = null;
 /* 盯着 iframe 里的界面什么时候真的起来。
    为什么要盯而不是听 load 事件：那个事件在文档级 onload 就触发了，而 SPA 那时
    还停在「Loading plugins…」。同源，读得到 contentDocument。
    起来之后要做的事只有一件：撤掉预热态（让这一页回到正常的显示/隐藏逻辑）。
-   刻意不显示"正在加载"之类的话 —— 预热在主人看概览时就把活干完了，
+   刻意不显示"正在加载"之类文案 —— 预热在用户查看概览时已完成，
    实测热缓存下点开是 0.2 秒，再挂个转圈提示反而显得慢。 */
 function watchDshFrame(){
   const box = document.getElementById("dshFrame");
@@ -1225,7 +1225,7 @@ function watchDshFrame(){
     }
   }, 1000);
 }
-/* 预热：趁主人还在看概览，先把 Harness 在后台初始化好。
+/* 预热：趁用户仍在查看概览，先在后台初始化好 Harness。
    注意不能就挂在隐藏容器里 —— 见上面 .dsh-preload 那段注释。 */
 function preloadDsh(){
   const sec = document.getElementById("sub-harness");
@@ -1233,8 +1233,8 @@ function preloadDsh(){
   sec.classList.add("dsh-preload");
   loadDsh();
 }
-/* Esc 退全屏：光在外层 document 上听不够 —— 主人一旦点过 iframe 里的界面，
-   焦点就进了那个文档，按键根本冒泡不到这边来。所以同源地给它内部的 document
+/* Esc 退出全屏：仅在外层 document 上监听不够 —— 用户一旦点击过 iframe 内的界面，
+   焦点即进入该文档，按键事件不会冒泡到此处。因此以同源方式为其内部 document
    也挂一份（每次 iframe 内部导航都会换文档，靠 load 事件重新挂）。 */
 function bindFrameEsc(box){
   if(box._dshEscBound) return;
@@ -1246,14 +1246,14 @@ function bindFrameEsc(box){
       d.addEventListener("keydown", ev => {
         if(ev.key === "Escape" && document.body.classList.contains("dsh-focusing")) toggleDshFocus(false);
       });
-    }catch(e){ /* 拿不到内部文档就算了，工具条上的按钮一样能退 */ }
+    }catch(e){ /* 无法获取内部文档时忽略；工具条按钮同样可退出 */ }
   });
 }
 let DSH_URL = "", DSH_AT = 0;
 /**
  * 重启 DeepSeek Harness 容器。
  *
- * 这一页就是 DSH 的控制面，重启目标写死 dsh —— 在这儿选"重启 caddy"没有意义。
+ * 这一页就是 DSH 的控制面，重启目标固定为 dsh —— 在这儿选"重启 caddy"没有意义。
  * 别的容器要重启去「运行 → Docker」，那里本来就有每个容器自己的按钮。
  *
  * 走已有的白名单动作 docker.restart：是**重启**不是重建，容器文件系统不动、
@@ -1271,7 +1271,7 @@ async function dshPower(action){
   }[action];
   if(!META) return;
   if(action === "stop" && !await askConfirm(
-      "停止 <b>DeepSeek Harness</b> 容器？<br><br>容器停下后这一页就打不开了，需要点「启动」恢复。",
+      "停止 <b>DeepSeek Harness</b> 容器？<br><br>容器停止后本页将无法访问，需点击「启动」恢复。",
       {title: "停止 DeepSeek Harness", danger: true, okText: "停止"})) return;
   const btn = document.getElementById(META.btn);
   const hint = document.getElementById("dshHint");
@@ -1284,9 +1284,9 @@ async function dshPower(action){
     toast(j.ok ? ("已" + META.label + " dsh") : (META.label + "失败：" + detail), !j.ok);
     if(j.ok){
       if(action === "stop"){
-        if(hint) hint.textContent = "容器已停止，界面无法再访问；点「启动」可恢复。";
+        if(hint) hint.textContent = "容器已停止，界面无法访问；点击「启动」可恢复。";
       }else{
-        if(hint) hint.textContent = "容器" + META.label + "中，起来后会自动取新的入口链接…";
+        if(hint) hint.textContent = "容器正在" + META.label + "，恢复后将自动获取新的入口链接…";
         // dsh 重启会换一次性 token；到点重新取一次
         setTimeout(() => { loadDsh(true); }, META.wait);
       }
@@ -1307,7 +1307,7 @@ function restartDsh(){ return dshPower("restart"); }
 /* --- KMS 授权服务（数据来自 v1m-dash）------------------------------- */
 /* 合并之后对外只有一个面板，但 KMS 的数据仍由它原来的进程提供：那个进程同时管着
    vlmcsd 的 ini、supervisord 的进程控制与激活日志解析。所以这里只做展示，
-   与 DeepSeek Harness 同一个思路 —— 都是「面板里的一页」，不假装是自己实现的。 */
+   与 DeepSeek Harness 采用同一思路 —— 都作为「面板中的一页」，不伪装为自身实现。 */
 /* vlmcsd 配置项的中文标签。展示与编辑表单共用这一份 —— 两处各写一遍的话，
    改了一处忘了另一处，界面上就会出现同一个键两种叫法。
    键名以真机的 vlmcsd.ini 为准（是 MaxIdleTime / WhitelistingLevel，不是
@@ -1382,7 +1382,7 @@ async function loadKms(){
     box("kmsBanned").innerHTML = banned.map(ip =>
       `<tr><td class="mono">${esc(ip)}</td><td class="hint">${esc(why[ip] || "—")}</td>
         <td class="num"><button class="act ghost mini"
-          onclick="kmsAction('unban',{ip:'${esc(ip)}'},'解除 ${esc(ip)} 的激活限流封禁')">解除</button>
+          onclick="kmsAction('unban',{ip:'${esc(ip)}'},'解除 ${esc(ip)} 的激活限流封禁')">解除封禁</button>
         </td></tr>`).join("")
       || '<tr><td colspan="3" class="empty">当前没有封禁中的来源</td></tr>';
   }
@@ -1418,17 +1418,17 @@ async function kmsEditConfig(){
   const j = await api("/api/kms");
   const cfg = ((j.summary || {}).config) || {};
   const keys = Object.keys(cfg);
-  if(!keys.length) return toast("读不到 vlmcsd 配置，无法编辑", true);
-  // 字段直接从当前配置里生成，不写死一份列表 —— 真机的键名是 MaxIdleTime /
+  if(!keys.length) return toast("无法读取 vlmcsd 配置，不能编辑", true);
+  // 字段直接从当前配置中生成，不硬编码一份列表 —— 真机的键名是 MaxIdleTime /
   // WhitelistingLevel，值与 ini 里原样一致（false/true 而不是 0/1）。
-  // 写死列表的话，键名一旦不同就会出现「保存了但没生效」这种最难查的问题。
+  // 若硬编码该列表，键名不一致时会出现「已保存但未生效」这类难以定位的问题。
   const f = await askForm(
     "保存后会自动重载；只有改 <b>Port</b> 或 <b>Listen</b> 才会重启进程。",
     keys.map(k => ({key: k, label: (KMS_CFG_CN[k] ? KMS_CFG_CN[k] + "（" + k + "）" : k),
                     value: cfg[k] != null ? String(cfg[k]) : ""})),
     {title: "vlmcsd 配置", okText: "保存"});
   if(!f) return;
-  // 只提交真正改动过的项，免得把整个 ini 重写一遍
+  // 只提交真正改动过的项，以免重写整个 ini
   const params = {};
   keys.forEach(k => {
     const v = String(f[k] == null ? "" : f[k]).trim();
@@ -1461,7 +1461,7 @@ async function loadDsh(force){
       hint.classList.add("hidden");
       btn.disabled = false;
       // 只在「链接变了」（容器重启换了 token，或首次进来）时才动 iframe。
-      // 否则每次切回这个视图都会把 Harness 整个重载一遍 —— 正在跑的会话就断了。
+      // 否则每次切回该视图都会把 Harness 整个重载一遍 —— 正在运行的会话即会中断。
       if(force === true || box.getAttribute("src") !== DSH_URL){
         box.setAttribute("src", DSH_URL);
         // 这里主动起轮询，而不是给 iframe 挂 onload：
@@ -1475,7 +1475,7 @@ async function loadDsh(force){
       DSH_URL = "";
       meta.textContent = "未接入";
       meta.classList.add("bad");
-      hint.textContent = j.hint || "取不到进场链接";
+      hint.textContent = j.hint || "无法获取入口链接";
       hint.classList.remove("hidden");
       btn.disabled = true;
       box.removeAttribute("src");
@@ -1491,20 +1491,20 @@ async function loadDsh(force){
   }
 }
 function openDsh(){
-  if(!DSH_URL){ toast("还没有可用的进场链接", true); return; }
-  // 新标签页打开：token 在 URL 里，用 noopener 别把 opener 交出去
+  if(!DSH_URL){ toast("暂无可用入口链接", true); return; }
+  // 新标签页打开：token 在 URL 中，使用 noopener 避免将 opener 交出
   window.open(DSH_URL, "_blank", "noopener");
 }
 /* 给 iframe 算一个**确定**的高度。
    为什么不靠 CSS：手机端 N1bus 是「.shell 改 column + 高度靠 min-height」的布局，
    整条链给不出确定高度，`height:100%` 会退化成 auto，iframe 就只剩 min-height
-   那一小块（实测 340×360 —— DSH 界面严重变形就是这么来的）。
+   那一小块（实测 340×360 —— DSH 界面严重变形即由该原因导致）。
    这里直接按视口减掉实际占用，简单可靠，窗口怎么变都跟着变。 */
 function sizeDshFrame(){
   const box = document.getElementById("dshFrame");
   if(!box) return;
   // 卡片顶部现在有两行：h2 标题 + toolbar 操作条（原先是单行 .dsh-bar）。
-  // 量它们的实际高度而不是写死数字 —— 操作条里的按钮数还会变。
+  // 测量它们的实际高度而非硬编码数值 —— 操作条中的按钮数量还会变化。
   const head = document.querySelector("#sub-harness h2");
   const bar = document.querySelector("#sub-harness .toolbar");
   const headH = head ? head.getBoundingClientRect().height : 20;
@@ -1521,8 +1521,8 @@ function sizeDshFrame(){
 }
 window.addEventListener("resize", sizeDshFrame);
 /* 沉浸模式：把侧边栏和顶栏收起来，只留 Harness 这张卡片铺满当前页面。
-   只是"覆盖当前页面"，不是浏览器真全屏 —— 后者要用户手势授权，还会把整个窗口切走，
-   回来时容易让人以为页面丢了。按钮文字与样式跟着状态走，Esc 也能退。 */
+   仅为「覆盖当前页面」，并非浏览器原生全屏 —— 后者需要用户手势授权，且会切换整个窗口，
+   返回时易被误认为页面已丢失。按钮文字与样式随状态变化，Esc 也可退出。 */
 function toggleDshFocus(on){
   const btn = document.getElementById("dshFull");
   const next = (typeof on === "boolean") ? on : !document.body.classList.contains("dsh-focusing");
@@ -1562,7 +1562,7 @@ function saveTimezone(){
 }
 /* --- 文件管理器 -------------------------------------------------------- */
 /* 服务端所有写操作都过 safe_write_path（realpath 之后仍在白名单根内）并进审计；
-   这里的前端只负责别让用户误点 —— 删除/覆盖一律 askConfirm()。 */
+   这里的前端只负责避免用户误操作 —— 删除/覆盖一律 askConfirm()。 */
 let FMPATH = "";
 let FMROOTS = [];
 let FMEDITING = "";
@@ -1582,10 +1582,10 @@ async function loadFiles(path){
     const meta1 = document.getElementById("fmMeta");
     if(meta1) meta1.textContent = "";
     // 故意不覆盖 FMPATH：保留上一次成功的位置。否则输错一次，
-    // 连「刷新」和面包屑都跟着坏掉，得再手打一遍才能回来。
+    // 「刷新」与面包屑也会一并失效，需重新手动输入路径才能返回。
     if(!FMPATH){
       const crumb0 = document.getElementById("fmCrumb");
-      if(crumb0) crumb0.innerHTML = `<span class="hint">还没进到任何目录 —— 从上面选一个根，或直接填绝对路径。</span>`;
+      if(crumb0) crumb0.innerHTML = `<span class="hint">尚未进入任何目录 —— 请从上方选择根目录，或直接填写绝对路径。</span>`;
     }
     toast(j.error, true);
     return;
@@ -1597,9 +1597,9 @@ async function loadFiles(path){
   const writable = j.roots_writable || {};
   if(rootSel && rootSel.dataset.roots !== FMROOTS.join("|")){
     rootSel.dataset.roots = FMROOTS.join("|");
-    // 这是个"跳转器"而不是"当前状态"：选完就跳，然后自己弹回占位项。
-    // 之前它兼作状态显示，在子目录里看着像没生效，容易误会。
-    rootSel.innerHTML = `<option value="">跳到某个根…</option>` +
+    // 该控件是「跳转器」而非状态显示：选择后即跳转，随后退回占位项。
+    // 此前它兼作状态显示，在子目录中看起来像未生效，容易造成误解。
+    rootSel.innerHTML = `<option value="">跳转到根目录…</option>` +
       FMROOTS.map(r => `<option value="${esc(r)}">${esc(r)}${writable[r] === false ? "（只读）" : ""}</option>`).join("");
   }
   rootSel && (rootSel.value = "");
@@ -1612,10 +1612,10 @@ async function loadFiles(path){
   if(writeHint){
     const ro = FMROOTS.filter(r => writable[r] === false);
     writeHint.textContent = ro.length
-      ? "注：" + ro.join("、") + " 由 systemd 的 ProtectSystem 挂成只读，能看能下载、存不进去。"
+      ? "注：" + ro.join("、") + " 由 systemd 的 ProtectSystem 挂成只读，仅可查看与下载，无法写入。"
       : "";
   }
-  // 面包屑：当前路径逐级可点，一眼看出自己在哪、能往回跳几层
+  // 面包屑：当前路径逐级可点，可直接看出所处位置与可回退层级
   const crumb = document.getElementById("fmCrumb");
   if(crumb){
     const rootHit = FMROOTS.find(r => FMPATH === r || FMPATH.startsWith(r.replace(/\/+$/, "") + "/"));
@@ -1630,7 +1630,7 @@ async function loadFiles(path){
           `<button class="act ghost mini" onclick="loadFiles('${fmEscape(acc)}')">${esc(p)}</button>`;
       }
     } else {
-      html += `<span class="hint mono">${esc(FMPATH || "(未选目录)")}</span>`;
+      html += `<span class="hint mono">${esc(FMPATH || "（未选择目录）")}</span>`;
     }
     crumb.innerHTML = html;
   }
@@ -1645,11 +1645,11 @@ async function loadFiles(path){
     const q = fmEscape(full);
     const acts = e.dir
       ? `<button class="act ghost mini" onclick="loadFiles('${q}')">打开</button>
-         <button class="act ghost mini" onclick="fmRename('${q}', true)">改名</button>
+         <button class="act ghost mini" onclick="fmRename('${q}', true)">重命名</button>
          <button class="act ghost mini" onclick="fmDelete('${q}', true)">删除</button>`
       : `<button class="act ghost mini" onclick="fmEdit('${q}')">编辑</button>
          <button class="act ghost mini" onclick="fmDownload('${q}')">下载</button>
-         <button class="act ghost mini" onclick="fmRename('${q}', false)">改名</button>
+         <button class="act ghost mini" onclick="fmRename('${q}', false)">重命名</button>
          <button class="act ghost mini" onclick="fmDelete('${q}', false)">删除</button>`;
     return `<tr>
       <td class="mono">${e.dir ? '<span class="tag info">目录</span> ' : ""}${esc(e.name)}${
@@ -1660,14 +1660,14 @@ async function loadFiles(path){
       </tr>`;}).join("") || '<tr><td colspan="4" class="empty">目录为空</td></tr>';
 }
 function fmReload(){ return loadFiles(FMPATH); }
-/** 路径框里按回车 = 点「前往」。不加这个，输完下意识一回车什么都不会发生。 */
+/** 路径框内按回车等同点击「前往」。缺少该处理时，输入后按回车不会有任何响应。 */
 function fmKey(ev){
   if(ev.key === "Enter" || ev.keyCode === 13){
     ev.preventDefault();
     fmGo();
   }
 }
-/** 下拉框是"跳转器"：选完就跳，随后自己弹回占位项。 */
+/** 下拉框是「跳转器」：选择后即跳转，随后退回占位项。 */
 function fmGotoRoot(root){
   if(root) loadFiles(root);
 }
@@ -1675,7 +1675,7 @@ function fmGo(){
   const box = document.getElementById("fmPath");
   if(!box) return;
   const v = box.value.trim();
-  if(!v){ toast("先填一个绝对路径", true); return; }
+  if(!v){ toast("请先填写绝对路径", true); return; }
   loadFiles(v);
 }
 function fmUp(){
@@ -1691,13 +1691,13 @@ async function fmUploadChosen(input){
   const files = Array.from(input.files || []);
   input.value = "";
   if(!files.length) return;
-  if(!FMPATH){ toast("先进入一个目录再上传", true); return; }
+  if(!FMPATH){ toast("请先进入目录再上传", true); return; }
   let ok = 0, fail = [];
   for(const f of files){
     const target = fmJoin(FMPATH, f.name);
     try{
       // 走 api() 以复用 Bearer 与 401 处理；Content-Type 覆盖成二进制，
-      // 服务端按原始 body 收（不套 JSON，省掉 base64 那份膨胀）。
+      // 服务端按原始 body 接收（不套 JSON，省去 base64 的编码膨胀）。
       const j = await api("/api/file/upload?path=" + encodeURIComponent(target), {
         method: "POST",
         headers: {"Content-Type": "application/octet-stream"},
@@ -1720,14 +1720,14 @@ async function fmEdit(path){
   const ta = document.getElementById("fmEditText");
   if(!box || !ta) return;
   if(!j.ok){
-    toast(j.error || "打不开", true);
+    toast(j.error || "无法打开", true);
     return;
   }
   FMEDITING = j.path || path;
   box.classList.remove("hidden");
   document.getElementById("fmEditPath").textContent = FMEDITING;
   document.getElementById("fmEditInfo").textContent = bytes(j.size) + " · UTF-8 文本";
-  document.getElementById("fmEditHint").textContent = "保存时会自动留一份 .bak；写入记入审计。";
+  document.getElementById("fmEditHint").textContent = "保存时会自动保留一份 .bak；写入操作记入审计。";
   ta.value = j.text || "";
   ta.focus();
 }
@@ -1749,7 +1749,7 @@ async function fmSave(){
 }
 async function fmDownload(path){
   // 不能用 <a href> 直接指过去：那条路不带 Bearer，服务端会 401。
-  // 也不把 token 塞进查询串 —— URL 会进浏览器历史与访问日志。所以取回 blob 再下载。
+  // 也不把 token 放入查询串 —— URL 会进入浏览器历史与访问日志。因此取回 blob 后下载。
   try{
     const r = await fetch("/api/file/download?path=" + encodeURIComponent(path), {
       headers: {"Authorization": "Bearer " + TOKEN},
@@ -1772,7 +1772,7 @@ async function fmDownload(path){
   }
 }
 async function fmNewFile(){
-  const name = await askPrompt("新建文件名（只写名字）：", "", {title: "新建文件"});
+  const name = await askPrompt("新建文件名（仅填写名称）：", "", {title: "新建文件"});
   if(!name) return;
   const r = await api("/api/file/touch", {
     method: "POST",
@@ -1783,7 +1783,7 @@ async function fmNewFile(){
   fmReload();
 }
 async function fmNewDir(){
-  const name = await askPrompt("新建目录名（只写名字）：", "", {title: "新建目录"});
+  const name = await askPrompt("新建目录名（仅填写名称）：", "", {title: "新建目录"});
   if(!name) return;
   const r = await api("/api/file/mkdir", {
     method: "POST",
@@ -1795,26 +1795,26 @@ async function fmNewDir(){
 }
 async function fmRename(path, isDir){
   const old = path.split("/").pop();
-  const name = await askPrompt("新名字（只写名字，不含路径）：", old, {title: "改名"});
+  const name = await askPrompt("新名称（仅填写名称，不含路径）：", old, {title: "重命名"});
   if(!name || name === old) return;
   const r = await api("/api/file/rename", {
     method: "POST",
     body: JSON.stringify({path: path, name: name.trim()}),
   });
-  if(!r.ok){ toast(r.error || "改名失败", true); return; }
-  toast("已改名为 " + name.trim());
+  if(!r.ok){ toast(r.error || "重命名失败", true); return; }
+  toast("已重命名为 " + name.trim());
   fmReload();
 }
 async function fmDelete(path, isDir){
   // body 走 innerHTML（和 toast 一致），所以路径必须转义后再拼
   const body = isDir
-    ? `删除目录 <b>${esc(path)}</b> ？\n目录必须为空；要连内容一起删，下一步会再问一次。`
+    ? `删除目录 <b>${esc(path)}</b> ？\n目录必须为空；如需连同内容一并删除，下一步将再次确认。`
     : `删除文件 <b>${esc(path)}</b> ？\n此操作不可撤销。`;
   if(!await askConfirm(body, {title: "删除", danger: true, okText: "删除"})) return;
   let recursive = false;
   if(isDir){
     recursive = await askConfirm("连同目录里的<b>全部内容</b>一起删除？\n\n" +
-                        "确定 = 整棵删掉（不可撤销）\n取消 = 只删空目录（非空会失败）",
+                        "「确定」：连同全部内容删除（不可撤销）\n「取消」：仅删除空目录（目录非空时会失败）",
                         {title: "递归删除", danger: true, okText: "连同内容删除"});
   }
   const r = await api("/api/file/delete", {
@@ -1920,7 +1920,7 @@ async function loadAlerts(){
   set("alLoad", r.load_per_core || 0);
   set("alFailed", r.failed_units || 0);
   const meta = document.getElementById("alMeta");
-  if(meta) meta.textContent = c.enabled ? ("已启用 · " + (c.webhook || "没填 Webhook"))
+  if(meta) meta.textContent = c.enabled ? ("已启用 · " + (c.webhook || "未填写 Webhook"))
                                         : "未启用";
   const hint = document.getElementById("alHint");
   if(hint) hint.textContent = j.note || "";
@@ -1961,8 +1961,8 @@ async function loadNetInfo(){
   const el = document.getElementById("sysNetBody");
   if(!el) return;
   const ifs = j.interfaces || [];
-  // 物理网卡要一眼看到；虚拟网卡（veth* 是 Docker 给每个容器拉的一根线）数量会
-  // 随容器数增长、地址栏还常常是空的，平铺时会把真正重要的那几行淹掉。
+  // 物理网卡需要优先可见；虚拟网卡（veth* 是 Docker 为每个容器创建的一对虚拟接口）数量会
+  // 随容器数增长，且地址栏常为空，平铺显示会淹没真正重要的条目。
   // 所以分两组，虚拟那组默认收起、只留一个数量。
   const phys = ifs.filter(i => i.kind !== "virtual");
   const virt = ifs.filter(i => i.kind === "virtual");
@@ -2001,8 +2001,8 @@ async function loadDisks(){
     walk(d.children, depth + 1);
   });
   walk(j.blockdevices, 0);
-  // 用量改成条形。原先一行 "5.5 GB / 28.9 GB  19.1%" 要读者自己去比，
-  // 条形能直接看出哪个分区快满了；超过 80% / 90% 换警示色。
+  // 用量改为条形展示。原先的单行文本需要读者自行比较，
+  // 条形可直接看出哪个分区接近占满；超过 80% / 90% 切换警示色。
   const mounts = j.mounts || [];
   el.innerHTML = "<h2>块设备</h2>" + kvRows(rows, "无块设备信息") +
     '<h2 class="gap-lg">挂载点用量</h2>' +
@@ -2046,8 +2046,7 @@ async function loadProcesses(){
     {c: "mono", s: "cursor:pointer", a: `data-full="${esc(p.args)}"`, h: esc(cmdName(p.args))},
     {c: "num", h:
       `<button class="act danger mini" title="结束这个进程（SIGKILL：立即终止，进程无法拦截）"
-        onclick="runAction('process.kill',{pid:'${esc(p.pid)}'})">结束</button>`},
-  ], null, '<tr><td colspan="8" class="empty">无数据</td></tr>');
+        onclick="runAction('process.kill',{pid:'${esc(p.pid)}'})">终止</button>`},  ], null, '<tr><td colspan="8" class="empty">无数据</td></tr>');
 }
 
 /* --- 日志 ------------------------------------------------------------- */
@@ -2085,7 +2084,7 @@ async function loadLogs2(){
 async function loadActions(){
   const j = await api("/api/meta");
   ACTIONS = j.actions || [];
-  // 动作按名称前缀归到它所属的模块 —— 30 个动作平铺是一条几百像素的长墙，
+  // 动作按名称前缀归到所属模块 —— 30 个动作平铺会形成一条几百像素的长列表，
   // 分组后能一眼看出"清理类有哪些、服务类有哪些"。
   const GROUP_LABELS = { apt: "软件包 · apt", backup: "备份", boot: "开机自启",
                          clean: "清理", docker: "Docker", journal: "日志",
@@ -2106,7 +2105,7 @@ async function loadActions(){
     const iy = ORDER.indexOf(ORDER.find(k => GROUP_LABELS[k] === y) || "other");
     return ix - iy;
   });
-  // 默认展开的组：这台的日常动作都在里面，其余折叠起来 —— 一屏看全 13 个模块名
+  // 默认展开的组：本机日常动作都在其中，其余折叠 —— 一屏可看全 13 个模块名
   const OPEN_BY_DEFAULT = new Set(["清理", "Docker", "systemd 服务"]);
   document.getElementById("acList").innerHTML = keys.map(k => `
     <details class="agroup"${OPEN_BY_DEFAULT.has(k) ? " open" : ""}>
@@ -2137,10 +2136,10 @@ function collectParams(name){
   }
   return out;
 }
-/* 自启开关的乐观更新：点击的一瞬间就把按钮翻过去。
+/* 开机自启开关的乐观更新：点击的瞬间就把按钮翻过去。
    为什么需要它 —— /api/autostart 走的是 `systemctl list-unit-files`，这条命令本身在
-   这台 2 核机上就要 ~0.95 秒；写操作后服务端缓存失效，等它回来再重建 DOM，
-   用户体感就是"点完要等一秒才变"。先就地翻，再用真值校正。 */
+   本机（2 核）上就需要 ~0.95 秒；写操作后服务端缓存失效，等它回来再重建 DOM，
+   用户感知就是「点击后要等一秒才变化」。先就地切换，再用真值校正。 */
 function optimisticBoot(btn, name, params){
   if(!btn) return;
   const isBoot = name === "boot.enable" || name === "boot.disable";
@@ -2148,10 +2147,10 @@ function optimisticBoot(btn, name, params){
   if(!isBoot && !isDk) return;
   const on = isBoot ? (name === "boot.enable") : !!params.on;
   // 只翻按钮文字。
-  // 别去动「状态」那一列 —— 那是 dot() 画的小圆点，手工改它的 class 会造出一个
-  // 没人管的"野点"：先出现、等真值回来重建 DOM 时又消失，看着就是闪烁。
+  // 不要修改「状态」列 —— 该列由 dot() 绘制的圆点构成，手工改 class 会产生一个
+  // 无人维护的孤立节点：先出现，待真值返回重建 DOM 时又消失，表现为闪烁。
   // 状态列交给 loadAutostart 用后端真值统一重绘。
-  btn.textContent = on ? "取消自启" : "自启";
+  btn.textContent = on ? "取消开机自启" : "开机自启";
 }
 async function runAction(name, params, btn){
   const a = ACTIONS.find(x => x.name === name);
@@ -2170,7 +2169,7 @@ async function runAction(name, params, btn){
                  (j.demo ? "　[演示模式]" : "") + (j.audit ? "　审计已记录" : "");
     document.getElementById("acOut").textContent =
       head + "\n" + "─".repeat(60) + "\n" + ((j.out || "") + (j.err ? "\n[stderr]\n" + j.err : "") ||
-      (j.error || j.detail || "(没有输出)"));
+      (j.error || j.detail || "（无输出）"));
     document.getElementById("acMeta").textContent = nowText();
     toast(j.ok ? esc(a.label) + " 成功" : esc(a.label) + " 失败：" + esc(j.error || j.detail || ""), !j.ok);
     loadAudit();
@@ -2180,18 +2179,18 @@ async function runAction(name, params, btn){
 /* 动作成功之后要刷哪些面板。
    第一版是一串 name.startsWith("service.") / ===("ufw.deny") 的逐个判断，
    漏掉的动作（clean.* / boot.* / time.* / fail2ban.unban / backup.create …）
-   执行完面板上还是旧值 —— 表现就是"点了按钮状态不刷新"。
-   第二版改成"按模块前缀映射到对应**视图**"，不再漏了，但粒度太粗：点一次
-   「取消自启」会调 loadTab("system")，而那个视图一次要拉 7 个接口
+   执行完面板上仍是旧值 —— 表现为「点击按钮后状态不刷新」。
+   第二版改为"按模块前缀映射到对应**视图**"，不再遗漏，但粒度太粗：点击一次
+   「取消开机自启」会调 loadTab("system")，而那个视图一次要拉 7 个接口
    （CDP 实测一个动作带出 8 个请求、5 秒）。现在直接映射到**要重载的那几个 loader**。 */
 const ACTION_RELOAD = [
   // 动作前缀 → loader 名。更具体的写在前面（docker.autostart / docker.prune_images）。
-  [["docker.autostart"], ["autostart"]],            // 容器自启开关，在「系统」页
+  [["docker.autostart"], ["autostart"]],            // 容器开机自启开关，在「系统」页
   [["docker.prune_images"], ["images", "cleanup"]],
   [["docker.rm"], ["docker", "autostart"]],
   [["docker."], ["docker"]],                        // 其余 docker.* 是容器列表
   [["service.", "systemd."], ["services"]],
-  [["boot."], ["autostart"]],                       // 服务自启开关
+  [["boot."], ["autostart"]],                       // 服务开机自启开关
   [["process."], ["net"]],
   [["ufw.", "fail2ban."], ["security"]],
   [["clean.", "journal.", "apt."], ["cleanup"]],
@@ -2199,7 +2198,7 @@ const ACTION_RELOAD = [
   [["time."], ["syssettings"]],
 ];
 function refreshRelated(name){
-  // 面板自己/整机要重启，刷新没意义（页面随后就断了）
+  // 面板自身/整机将要重启，刷新没有意义（页面随后会断开）
   if(name === "panel.restart" || name === "system.reboot") return;
   // 容器被删掉了：日志面板要收起来，否则还挂着一个不存在的容器
   if(name === "docker.rm"){
@@ -2217,7 +2216,7 @@ function refreshRelated(name){
     }
   }
   // 没登记的动作（account.* / 以后新增的）：只刷当前看得见的那些 loader，
-  // 不做"整个视图重来"—— 那是这一版要修掉的东西。
+  // 不做"整个视图重来"—— 那是该版本要修正的问题。
   const view = currentView();
   for(const it of (VIEWS[view] || [])){
     if(it.fold && !foldOpen(it.fold)) continue;
@@ -2228,7 +2227,7 @@ function refreshRelated(name){
 /* 批量重启：逐个走已有的白名单动作，每个都单独过一次审计；失败各自可见 */
 async function restartFailedUnits(){
   const bad = (UNITS || []).filter(u => u.active === "failed");
-  if(!bad.length){ toast("没有失败的单元"); return; }
+  if(!bad.length){ toast("没有处于失败状态的单元"); return; }
   if(!await askConfirm("重启这 <b>" + bad.length + "</b> 个失败单元？\n\n" +
               esc(bad.map(u => "· " + u.unit).join("\n")),
               {title: "批量重启", okText: "重启"})) return;
@@ -2246,7 +2245,7 @@ async function restartAllContainers(){
    面板自身的单元状态也放在这里 —— 它原先属于「面板与系统」卡片，那张卡随重启按钮
    一起移到了顶栏，剩下这点信息归到「关于」最合适，因为它描述的就是这个面板自己。
    注意：这个函数与下面那个是同一个（历史上重复定义过一次，靠函数提升互相覆盖，
-   结果是新版代码写了却不生效）—— 只留下面那一处。 */
+   结果是新版代码写入后未生效）—— 仅保留下方那一处。 */
 function nowText(){
   const d = new Date();
   const p = n => String(n).padStart(2, "0");
@@ -2279,8 +2278,8 @@ async function loadAudit(){
                                : (e.length + " / " + all.length + " 条"))
     : "暂无记录";
   // 动作、对象、说明都直接铺在表里。原先它们塞在一个 data-full 里、只在点击时
-  // 以悬浮提示显示，表格的「详情」列则永远写着「点击查看」—— 要看的字被藏起来了，
-  // 而那一列本身没给出任何信息。
+  // 仅在点击时以悬浮提示显示，表格「详情」列固定显示「点击查看」—— 关键信息被隐藏，
+  // 而该列本身不提供任何信息。
   document.getElementById("auBody").innerHTML = e.map(x => {
     const other = [x.target, x.detail].filter(Boolean).join(" · ");
     return `<tr>
@@ -2296,9 +2295,9 @@ async function loadAudit(){
 const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleString("zh-CN") : "–";
 /* 设置页「关于」：只放**静态**的身份信息 —— 版本、启动时间、主机与运行环境。
    刻意不放两类东西：
-     * 面板自身的 active/running：面板挂了就打不开这个页面，这行信息永远显示正常；
+     * 面板自身的 active/running：面板若不可用则无法打开本页面，这行信息永远显示正常；
      * 失败单元：那是动态状态，归属在「运行 → 服务」（那里有完整列表与批量重启）。
-   把动态状态塞进「关于」，只会让这张卡片既不像静态信息、又不如专职页面好用。 */
+   把动态状态放入「关于」，只会让这张卡片既不像静态信息、又不如专职页面实用。 */
 async function loadAbout(){
   const el = document.getElementById("stAbout");
   if(!el) return;
@@ -2326,15 +2325,15 @@ async function loadAccounts(){
       <td class="hint">${esc(fmtTime(u.last_login))}</td>
       <td class="num">${num(u.sessions)}</td>
       <td class="num">
-        <button class="act ghost mini" onclick="changePassword('${esc(u.name)}')">改密码</button>
+        <button class="act ghost mini" onclick="changePassword('${esc(u.name)}')">修改密码</button>
         <button class="act danger mini" onclick="deleteAccount('${esc(u.name)}')">删除</button>
       </td></tr>`).join("") || '<tr><td colspan="5" class="empty">无账户</td></tr>';
   document.getElementById("acMe").textContent = "当前登录：" + (j.me || "?");
 }
-/* 表单进弹窗：列表页只留「列表 + 按钮」，不把表单常驻在页面上占一整块。
+/* 表单进弹窗：列表页只留「列表 + 按钮」，不把表单常驻页面占用版面。
    这是 1Panel 一类面板的通行做法，也让账户卡片展开后依然短。 */
 async function createAccount(){
-  const f = await askForm("新账户的用户名与密码。密码至少 8 位。",
+  const f = await askForm("请输入新账户的用户名与密码，密码至少 8 位。",
     [{key: "name", label: "用户名", placeholder: "例如 admin"},
      {key: "password", label: "密码（至少 8 位）", type: "password"}],
     {title: "新增账户", okText: "创建"});
@@ -2346,12 +2345,12 @@ async function createAccount(){
   if(j.ok){ toast("已创建账户 " + esc(name)); loadAccounts(); }
   else toast(esc(j.error || "创建失败"), true);
 }
-/* name 为空表示改自己的密码；由表格行的「改密码」按钮或工具条按钮调用。
+/* name 为空表示修改本人密码；由表格行内的「修改密码」按钮或工具条按钮调用。
    两种情形都要用**操作者本人的当前密码**确认一次，这一点在弹窗里写明。 */
 async function changePassword(name){
   const target = name || ME;
   const f = await askForm(
-    "修改 <b>" + esc(target) + "</b> 的密码。需要用<b>你自己的当前密码</b>确认一次。",
+    "修改 <b>" + esc(target) + "</b> 的密码。需使用<b>本人当前密码</b>验证身份。",
     [{key: "password", label: "新密码（至少 8 位）", type: "password"},
      {key: "actor_password", label: "本人当前密码", type: "password"}],
     {title: "修改密码", okText: "保存"});
@@ -2375,8 +2374,8 @@ async function deleteAccount(name){
   else toast(esc(j.error || "删除失败"), true);
 }
 async function logoutAll(){
-  if(!await askConfirm("退出本人的全部会话？\n当前浏览器也会一起退出，需要重新登录。",
-                       {title: "退出所有会话", danger: true, okText: "退出"})) return;
+  if(!await askConfirm("退出本账户的全部会话？\n当前浏览器也会一起退出，需要重新登录。",
+                       {title: "退出全部会话", danger: true, okText: "退出"})) return;
   const j = await api("/api/accounts/logout-all", {method:"POST"});
   toast("已退出 " + num(j.dropped) + " 个会话");
   logout();
@@ -2416,8 +2415,8 @@ const LOADER_FN = {
    轮询时它收着就跳过（后台请求数少三到五成），展开时立刻补一次。
    点导航进视图、点「刷新」仍是全量拉齐 —— 收起块的汇总数字不该是空的。
 
-   安全与系统两页各自再分子视图。原因是一页塞八张卡片时只能靠"默认折叠"掩盖长度，
-   而折叠只是把问题藏起来：展开后依旧是一屏装不下的长页。拆成三组之后每页两三张卡，
+   安全与系统两页各自再分子视图。原因是单页容纳八张卡片时只能以「默认折叠」掩盖页面长度，
+   而折叠只是隐藏问题：展开后仍是一屏放不下的长页。拆成三组之后每页两三张卡，
    卡片就能平铺展开。参考 1Panel 的做法 —— 它不折叠，靠的是每页只放少量卡片。 */
 const VIEWS = {
   overview: [{k: "overview"}],
@@ -2437,7 +2436,7 @@ const VIEWS = {
   maintain: [{k: "cleanup", fold: "sysCleanBody"}, {k: "backup", fold: "sysBkBody"}],
   netstore: [{k: "netinfo", fold: "sysNetBody"}, {k: "disks", fold: "sysDiskBody"}],
   syscfg: [{k: "autostart", fold: "sysBootBody"}, {k: "syssettings", fold: "sysSetBody"}],
-  // 文件页是手动刷新为主（写操作自身会 reload），不塞进轮询
+  // 文件页以手动刷新为主（写操作自身会 reload），不纳入轮询
   files: [{k: "files"}],
   tasks: [{k: "tasks"}],
   logs: [{k: "logs", fold: "lgBox"}, {k: "audit", fold: "auBody"}],
@@ -2452,7 +2451,7 @@ const SUBS = {
 };
 const SUB_DEFAULT = {ext: "kms", runtime: "services",
                      security: "guard", system: "maintain"};
-/* 子视图 id → 它属于哪个主标签，由 SUBS 推出来，免得两处各写一遍还会对不上 */
+/* 子视图 id → 它属于哪个主标签，由 SUBS 推出来，以免两处各自编写而失去同步 */
 const SUB_OWNER = {};
 for(const m of Object.keys(SUBS)) for(const id of SUBS[m]) SUB_OWNER[id] = m;
 /* 每个主标签各自记住上次看的子视图，互不干扰（以前只有一个全局字符串，
@@ -2503,11 +2502,11 @@ function viewLabel(main, sub){
   const el = document.querySelector(sel);
   return el ? el.textContent.trim() : (sub || main);
 }
-/* fromUser=true 表示这是主人亲自点的导航。
+/* fromUser=true 表示这是用户亲自触发的导航。
    只有这种调用才「钉住」视图，让 boot() 的收尾落位不再覆盖它。 */
 function showView(main, sub, fromUser){
   if(fromUser) viewPinned = true;
-  // 沉浸模式下离开了 Harness 就自动退出，别把整个页面锁在那一页上
+  // 沉浸模式下离开 Harness 就自动退出，避免将整个页面锁定在该页面上
   if(document.body.classList.contains("dsh-focusing")) toggleDshFocus(false);
   curTab = main;
   // 子视图：先把这一页当前该看哪个确定下来（每页各记各的），再只显示它、隐藏其余
@@ -2553,13 +2552,13 @@ document.querySelectorAll(".subnav button").forEach(b => b.onclick = () => {
 function refreshNow(btn){
   if(btn) btn.classList.add("flash");
   setTimeout(() => btn && btn.classList.remove("flash"), 800);
-  forceFresh();                       // 刷新按钮要拿真值，别吃 30 秒的只读缓存
+  forceFresh();                       // 刷新按钮要取真值，避免命中 30 秒的只读缓存
   loadTab(currentView());
 }
 
-/* 卡片里的状态自己走起来：每 1 秒一个 tick，按各自间隔刷新「当前看得见」的那块。
-   日志页不自动刷新（别打断正在看的内容）；页面切到后台就停手，回来立刻补一次。
-   刷新时保留各滚动条位置，避免列表自己跳回顶部。 */
+/* 卡片状态按各自间隔自动刷新：每 1 秒一个 tick，仅刷新「当前可见」的区块。
+   日志页不自动刷新（避免打断正在查看的内容）；页面切到后台时暂停，返回后立即补一次。
+   刷新时保留各滚动条位置，避免列表跳回顶部。 */
 function currentView(){
   const subs = SUBS[curTab];
   return subs ? (curSub[curTab] || SUB_DEFAULT[curTab] || subs[0]) : curTab;
@@ -2567,7 +2566,7 @@ function currentView(){
 function pollRefresh(key){
   const boxes = [...document.querySelectorAll(".scroll, .logbox")];
   const tops = boxes.map(b => b.scrollTop);
-  loadTab(key, true);                 // 轮询走"偷懒模式"：收着的折叠块不拉
+  loadTab(key, true);                 // 轮询采用惰性模式：折叠状态的分块不拉取
   requestAnimationFrame(() => boxes.forEach((b, i) => { b.scrollTop = tops[i]; }));
 }
 function startPoll(){
@@ -2600,12 +2599,12 @@ async function boot(){
     await Promise.allSettled([loadOverview(), loadServices(), loadDocker(), loadImages(),
                               loadNet(), loadProcesses(), loadSecurity(), loadAccounts(),
                               loadActions(), loadAudit(), loadLogs2()]);
-    // 预热这几秒里主人可能已经点开了别的页 —— 那就让他的选择留在原地。
+    // 预热这几秒内用户可能已打开其他页面 —— 此时应保留用户的选择。
     // 这一行以前是无条件的，于是「刷新后马上点别的栏」会被拽回主页。
     if(!viewPinned) showView("overview");
     startPoll();
     // 面板自己先热一遍 Harness：它首次要拉一批前端插件（实测十几秒），
-    // 趁空闲在后台加载好，主人点开时就是现成的。不点也不亏 —— 就一个请求 + 一次加载。
+    // 在空闲时于后台加载完成，用户打开时即可直接使用。不打开也没有额外成本 —— 仅一次请求 + 一次加载。
     setTimeout(() => { try{ preloadDsh(); }catch(e){} }, 4000);
   }catch(e){ if(e.message !== "unauthorized") toast("加载失败：" + esc(e.message), true); }
 }

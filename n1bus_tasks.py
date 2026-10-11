@@ -10,13 +10,13 @@ from n1bus_actions import ACTIONS, run_action
 
 
 # --------------------------------------------------------------------------
-# 计划任务与告警：面板自己起后台线程，不碰系统 crontab
+# 计划任务与告警：由面板自身启动后台线程，不修改系统 crontab
 # --------------------------------------------------------------------------
 class Tasks:
     """面板内的计划任务表。
 
-    任务只能调用 ACTIONS 里已有的动作 —— 不写系统 crontab、不落任何脚本文件。
-    代价是：面板停着的时候任务也不会跑（页面上写明了）。
+    任务只能调用 ACTIONS 中已登记的动作 —— 不写入系统 crontab、不在磁盘上生成任何脚本文件。
+    代价是：面板未运行时任务同样不会执行（页面上已说明）。
     """
 
     MIN_EVERY = 60
@@ -64,13 +64,13 @@ class Tasks:
     def add(self, action, params, every, ip, enabled=True):
         spec = ACTIONS.get(action or "")
         if not spec:
-            return False, "没有这个动作"
+            return False, "该动作不存在"
         try:
             every = int(every)
         except (TypeError, ValueError):
-            return False, "周期必须是秒数"
+            return False, "周期必须是整数秒"
         if not (self.MIN_EVERY <= every <= 30 * 86400):
-            return False, "周期要在 %d 秒到 30 天之间" % self.MIN_EVERY
+            return False, "周期需在 %d 秒至 30 天之间" % self.MIN_EVERY
         clean = {}
         for key, validator in (spec.get("params") or {}).items():
             try:
@@ -92,7 +92,7 @@ class Tasks:
             before = len(self.items)
             self.items = [t for t in self.items if str(t.get("id")) != str(tid)]
             if len(self.items) == before:
-                return False, "没有这个任务"
+                return False, "该任务不存在"
             self._save()
         self.audit.write("task.del", str(tid), True, "", ip)
         return True, ""
@@ -107,12 +107,12 @@ class Tasks:
                     self.audit.write("task.toggle", str(tid), True,
                                      "现在 %s" % ("启用" if t["enabled"] else "停用"), ip)
                     return True, ""
-        return False, "没有这个任务"
+        return False, "该任务不存在"
 
     def run_now(self, tid, ip):
         target = next((t for t in self.items if str(t.get("id")) == str(tid)), None)
         if not target:
-            return False, {"error": "没有这个任务"}
+            return False, {"error": "该任务不存在"}
         return True, self._run(target, ip)
 
     def _run(self, t, ip):
@@ -199,17 +199,17 @@ class Alerts:
         if webhook and not webhook.startswith(("http://", "https://")):
             return False, "Webhook 必须以 http:// 或 https:// 开头"
         if len(webhook) > 300:
-            return False, "Webhook 地址太长"
+            return False, "Webhook 地址长度超过 300 字符上限"
         try:
             cooldown = int(body.get("cooldown_min") or 30)
         except (TypeError, ValueError):
-            return False, "冷却时间必须是分钟数"
+            return False, "冷却时间必须是整数分钟"
         rules = {}
         for key, default in self.DEFAULTS["rules"].items():
             try:
                 rules[key] = float((body.get("rules") or {}).get(key, default) or 0)
             except (TypeError, ValueError):
-                return False, "阈值 %s 不是数字" % key
+                return False, "阈值 %s 不是有效数字" % key
         if body.get("enabled") and not webhook:
             return False, "启用告警需先配置 Webhook"
         with self.lock:
@@ -228,7 +228,7 @@ class Alerts:
         import urllib.request
         url = self.cfg.get("webhook") or ""
         if not url:
-            return False, "没有配置 Webhook"
+            return False, "未配置 Webhook"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST",
                                      headers={"Content-Type": "application/json",

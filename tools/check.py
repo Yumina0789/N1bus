@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""结构自检：语法、界面里用到的 id 与图标是否都存在、有没有 shell 里跑的坏习惯。
+"""结构自检：语法、界面中使用的 id 与图标是否存在、是否存在不安全的 shell 用法。
 
 CI 每次提交都跑；本地也能直接 python3 tools/check.py。
 """
@@ -14,7 +14,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
              "meta", "param", "source", "track", "wbr"}
-try:                       # Windows 控制台默认 GBK，✔ 这种字符会炸；CI 上是 UTF-8
+try:                       # Windows 控制台默认 GBK，✔ 这类字符会导致编码错误；CI 上为 UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:          # noqa: BLE001
     pass
@@ -62,11 +62,11 @@ if js:
     else:
         print("  · 没装 node，跳过 JS 语法检查")
 
-    # 页面必须真的是 HTML：N1bus 曾经把整页当 JSON 字符串发出去，浏览器渲染成纯文本（CSS 全丢）
+    # 页面必须是真正的 HTML：N1bus 曾将整页作为 JSON 字符串发送，浏览器以纯文本渲染（CSS 全部失效）
     ok(html.lstrip().lower().startswith("<!doctype html>"), "页面以 <!DOCTYPE html> 开头")
     ok(html.rstrip().endswith("</html>"), "页面以 </html> 正常收尾")
 
-    # 标签配平：手搬面板区块时最容易漏掉一个 </div>，浏览器会默默容忍、界面却错位
+    # 标签配平：手工移动面板区块时最容易漏掉一个 </div>；浏览器会静默容忍，但界面会错位
     from html.parser import HTMLParser
 
     class Balance(HTMLParser):
@@ -106,9 +106,9 @@ if js:
        "每个标签页都在 JS 的 TABS 里注册过")
 
     # summary 里的 .q（说明位）在运行时会被 stripFoldNotes 移除 —— 标题行只留标题与
-    # 状态数字。所以**往那儿写内容是白写**：写过、永远不会显示，而且让下一个读者以为
-    # 「写了就该看得见」。这块以前就埋了 4 个这样的节点（ovDiskNote / ovProcNote /
-    # ovSecNote / mtNote），一直没人发现。要展示的摘要写进 .foldbody。
+    # 状态数字。因此向该位置写入内容不会生效：写入后永不显示，并会让后续读者误以为
+    # 「写入即应可见」。此处此前遗留了 4 个此类节点（ovDiskNote / ovProcNote /
+    # ovSecNote / mtNote），长期未被发现。需要展示的摘要应写入 .foldbody。
     slots = set()
     for sm in re.finditer(r"<summary>(.*?)</summary>", html, re.S):
         slots |= set(re.findall(r'<span class="q"[^>]*\bid="([A-Za-z0-9_-]+)"', sm.group(1)))
@@ -118,7 +118,7 @@ if js:
 
 print("== 安全底线 ==")
 # 安全底线要扫**全部** n1bus*.py —— 拆分后白名单动作表在 n1bus_actions.py 里，
-# 只扫 n1bus.py 会漏掉（拆分当天就因此红过一次）。
+# 只扫描 n1bus.py 会漏掉（拆分当天即因此导致 CI 失败一次）。
 srcs = {f: (ROOT / f).read_text(encoding="utf-8") for f in PY_FILES}
 all_src = "\n".join(srcs.values())
 ok("shell=True" not in all_src, "代码里没有 shell=True")
@@ -129,8 +129,8 @@ ok(bool(re.search(r"0o600|0o?600", all_src)), "token 文件按 600 权限写")
 
 print("== 安装清单 ==")
 # install.sh 的 SRC_FILES 必须与磁盘上的源码一一对应。加模块时忘了改它，
-# 装机就会 404 —— 2026-10 迁移时踩过一次（当时是 glob 在空目录里不展开），
-# 回滚了一轮。放在这里，改成红的总比在服务器上红好。
+# 装机时就会 404 —— 2026-10 迁移时曾发生一次（原因是 glob 在空目录中不展开），
+# 已回滚一轮。将该检查置于此处，在 CI 阶段失败优于在服务器上失败。
 _sh = (ROOT / "install.sh").read_text(encoding="utf-8")
 _m = re.search(r'^SRC_FILES="([^"]+)"', _sh, re.M)
 _listed = set(_m.group(1).split()) if _m else set()

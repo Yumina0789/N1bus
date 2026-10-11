@@ -36,7 +36,7 @@ _PAGE = {"text": None}
 def build_page():
     """把骨架与 ui.css / ui.js 拼成一份完整页面（幂等，只拼一次）。
 
-    某个分片文件缺失时就把对应槽位留空 —— 「只拆了一半」也能跑起来，
+    某个分片文件缺失时将对应槽位留空 —— 在仅完成部分拆分的情况下仍可运行，
     而不是整个面板 500。
     """
     if _PAGE["text"] is None:
@@ -53,21 +53,21 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "n1bus/" + VERSION
     app = None
 
-    def log_message(self, fmt, *args):   # 访问日志：只留错误，别把 journald 刷满
+    def log_message(self, fmt, *args):   # 访问日志：仅记录错误状态，避免访问日志淹没 journald
         if str(args[1] if len(args) > 1 else "").startswith(("4", "5")):
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     # --- 基础设施 ---------------------------------------------------------
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
-        """把东西发出去。
+        """发送响应体。
 
-        注意：**字符串原样发，不要 JSON 编码**。以前这里对任何非 bytes 都 json.dumps，
+        注意：**字符串按原样发送，不做 JSON 编码**。此前这里对任何非 bytes 都执行 json.dumps，
         于是 ui.html 被当成 JSON 字符串发出去（开头多个引号、换行变成字面 \\n、引号变成
         \\"），浏览器把整页当纯文本渲染 —— 表现就是「页面没有 CSS」。v1m-dash 那边一直是
-        分类型处理的，所以只有 N1bus 中招。
+        按类型分别处理的，因此只有 N1bus 出现该问题。
 
         另外：如果 body 是 dict 且这一趟走了只读缓存，就附一句 `_cache` 元数据，
-        让界面能如实说出「这批数据是 N 秒前的」——而不是拿旧值冒充实时值。
+        让界面能如实标注「这批数据是 N 秒前的」——而不是把缓存旧值当作实时值返回。
         """
         if isinstance(body, bytes):
             data = body
@@ -76,7 +76,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             meta = cache_meta()
             if meta and isinstance(body, dict):
-                body = dict(body, _cache=meta)   # 新 dict：绝不写回缓存里那份
+                body = dict(body, _cache=meta)   # 新建字典：不写回缓存中的原始对象
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -97,8 +97,8 @@ class Handler(BaseHTTPRequestHandler):
     def _authed(self, q):
         """两种凭证：① 登录后发的会话令牌（浏览器）② 服务 token（机器）。
 
-        服务 token 必须留着：N1bus 每 60 秒要拿它去 v1m-dash 拉限流决策，
-        那种调用没法让人登录。它存在 0600 的文件里，只给机器用。
+        服务 token 必须保留：N1bus 每 60 秒需用它向 v1m-dash 拉取限流决策，
+        该调用无法使用交互式登录。令牌存放在权限 0600 的文件中，仅供机器调用。
         """
         if q.get("token", [None])[0] == self.app["token"]:
             return True
@@ -122,10 +122,10 @@ class Handler(BaseHTTPRequestHandler):
     def _client_ip(self):
         """审计里记的客户端 IP。
 
-        面板通常挂在反向代理后面，直连方是那个容器（172.x）—— 那样审计里全是
-        "172.18.0.3 干了所有事"，等于没有。所以当直连方在信任网段内时，取
+        面板通常挂在反向代理后面，直连方是那个容器（172.x）—— 那样审计里全部
+        记录都会记为该代理容器地址，等同于没有区分度。因此当直连方位于信任网段内时，取
         X-Forwarded-For 的第一段（最左 = 最原始客户端）。直连方不在信任网段里就
-        完全不看这个头，免得有人伪造。
+        完全不读取该头部，避免其被伪造。
         """
         peer = self.client_address[0]
         nets = self.app.get("allow_nets") or []
@@ -145,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
         return peer
 
     def _client_ok(self):
-        """可选的来源白名单（--allow-ip）。绑回环/网桥时它只是第二层；绑 0.0.0.0 时它才是关键。"""
+        """可选的来源白名单（--allow-ip）。绑定回环/网桥时它只是第二层防护；绑定 0.0.0.0 时它才是关键防线。"""
         nets = self.app.get("allow_nets") or []
         if not nets:
             return True
@@ -173,8 +173,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         if not self._client_ok():
-            return self._send(403, {"error": "forbidden", "hint": "来源不在 --allow-ip 白名单里"})
-        # ?fresh=1：本次请求绕过只读缓存，取当下的真值（界面的「强制刷新」用它）
+            return self._send(403, {"error": "forbidden", "hint": "来源地址不在 --allow-ip 白名单内"})
+        # ?fresh=1：本次请求绕过只读缓存，读取当前实际值（界面的「强制刷新」使用该参数）
         _CACHE_LOCAL.fresh = q.get("fresh", ["0"])[0] in ("1", "true", "yes")
         _CACHE_LOCAL.last = (False, 0.0, 0.0)
         if u.path in ("/", "/index.html"):
@@ -190,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"need_setup": acc.need_setup(),
                                     "password_min": PASSWORD_MIN, "session_ttl": SESSION_TTL,
                                     "service_token": True, "me": me,
-                                    # 没登录就不告诉你都有哪些用户名 —— 否则等于替攻击者
+                                    # 未登录时不返回用户名列表 —— 否则等于替攻击者
                                     # 把"猜用户名"这一步做了
                                     "users": acc.names() if me else []})
         if not self._authed(q):
@@ -221,8 +221,8 @@ class Handler(BaseHTTPRequestHandler):
                     q.get("grep", [""])[0],
                     q.get("ts", [""])[0] in ("1", "true", "yes")))
             if u.path == "/api/security":
-                # 这一页要的几样东西彼此重叠（fail2ban / ufw / auth.log），先各算一次
-                # 再往下传：否则 logins 与 blocked 会被同一个请求多跑好几遍。
+                # 本页所需数据彼此重叠（fail2ban / ufw / auth.log），因此各计算一次
+                # 再向下传递：否则同一请求会重复计算 logins 与 blocked 多次。
                 f2b = p.security.fail2ban()
                 lg = p.security.logins()
                 blk = p.security.blocked(f2b)
@@ -252,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
                 real = safe_path(q.get("path", [""])[0], want_dir=False)
                 if real is None:
                     return self._send(404, {"ok": False,
-                                            "error": "路径不在允许浏览的目录里，或者不是普通文件"})
+                                            "error": "路径不在允许浏览的目录内，或不是普通文件"})
                 try:
                     size = os.path.getsize(real)
                 except OSError as ex:
@@ -329,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         if not self._client_ok():
-            return self._send(403, {"error": "forbidden", "hint": "来源不在 --allow-ip 白名单里"})
+            return self._send(403, {"error": "forbidden", "hint": "来源地址不在 --allow-ip 白名单内"})
         # POST 一律取真值：写操作前的判断不该建立在陈旧观测上
         _CACHE_LOCAL.fresh = True
         _CACHE_LOCAL.last = (False, 0.0, 0.0)
@@ -339,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         # --- 不需要登录的两个入口 -----------------------------------------
         if u.path == "/api/setup":
             if not acc.need_setup():
-                return self._send(403, {"ok": False, "error": "已经有账户了，请直接登录"})
+                return self._send(403, {"ok": False, "error": "已存在账户，请直接登录"})
             body = self._json_body()
             name = (body.get("name") or "").strip()
             ok, err = acc.create(name, body.get("password") or "")
@@ -351,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/login":
             wait = self.app["guard"].wait_seconds(ip)
             if wait:
-                return self._send(429, {"ok": False, "error": "登录失败次数太多，请 %d 秒后再试" % wait})
+                return self._send(429, {"ok": False, "error": "登录失败次数过多，请在 %d 秒后重试" % wait})
             body = self._json_body()
             name = (body.get("name") or "").strip()
             if acc.check(name, body.get("password") or ""):
@@ -363,13 +363,13 @@ class Handler(BaseHTTPRequestHandler):
             self.app["audit"].write("account.login", name or "(空)", False,
                                     "密码错误" + ("，已封禁 %d 秒（第 %d 档）" % (secs, level)
                                                   if blocked else ""), ip)
-            return self._send(403, {"ok": False, "error": "用户名或密码不对"})
+            return self._send(403, {"ok": False, "error": "用户名或密码不正确"})
 
         # --- 以下都要已登录 -----------------------------------------------
         if not self._authed(q):
             return self._send(401, {"error": "unauthorized"})
 
-        # --- 面板自身的配置接口（不是系统命令，所以不进 ACTIONS 表）---------
+        # --- 面板自身的配置接口（不属于系统命令，因此不纳入 ACTIONS 表）---------
         if u.path == "/api/tasks/add":
             b = self._json_body()
             ok, err = self.app["tasks"].add(b.get("action"), b.get("params") or {},
@@ -439,8 +439,8 @@ class Handler(BaseHTTPRequestHandler):
 
         # --- 文件管理：写类操作 -------------------------------------------
         #
-        # 上传走原始 body（不套 JSON）—— 二进制直接落盘，省掉 base64 那份膨胀。
-        # 所以它必须排在下面 `body = self._json_body()` 之前，否则请求体会被当 JSON 读空。
+        # 上传使用原始请求体（不套 JSON）—— 二进制数据直接落盘，避免 base64 编码带来的体积膨胀。
+        # 因此它必须排在下面 `body = self._json_body()` 之前，否则请求体会被按 JSON 解析为空对象。
         if u.path == "/api/file/upload":
             target = q.get("path", [""])[0]
             try:
@@ -448,9 +448,9 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 n = 0
             if n <= 0:
-                return self._send(400, {"ok": False, "error": "没有收到文件内容"})
+                return self._send(400, {"ok": False, "error": "未收到文件内容"})
             if n > FILE_UPLOAD_MAX:
-                return self._send(413, {"ok": False, "error": "文件超过单次上传上限（%s）"
+                return self._send(413, {"ok": False, "error": "文件大小超过单次上传上限（%s）"
                                         % _human_size(FILE_UPLOAD_MAX)})
             try:
                 data = self.rfile.read(n)
@@ -489,12 +489,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200 if ok else 400,
                               {"ok": ok, "error": err, "users": acc.listing()})
         if u.path == "/api/accounts/password":
-            # 改谁的密码都行，但必须拿"你自己当前的密码"确认一次 —— 免得一个会话被
-            # 偷走就能静默接管所有账户
+            # 任何账户的密码均可修改，但必须用操作者当前密码再确认一次 —— 否则会话一旦
+            # 泄露即可静默接管全部账户
             if me == "(服务 token)" or not acc.check(me, body.get("actor_password") or ""):
                 self.app["audit"].write("account.password", body.get("name") or me, False,
                                         "当前密码校验失败", ip)
-                return self._send(403, {"ok": False, "error": "请输入你自己当前的密码"})
+                return self._send(403, {"ok": False, "error": "请输入当前账户的密码以确认身份"})
             target = (body.get("name") or me).strip()
             ok, err = acc.set_password(target, body.get("password") or "")
             if ok:
@@ -512,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
             self.app["audit"].write("account.logout_all", me, True, "退出 %d 个会话" % n, ip)
             return self._send(200, {"ok": True, "dropped": n})
         if u.path == "/api/accounts/unblock":
-            # 自己手滑输错密码把自己封了，或者误封了好人：给一条明确的解封路。
+            # 操作者输错密码导致自身来源被封禁、或正常来源被误封时：提供明确的解封入口。
             # 档位不清零，所以解封不等于给攻击者重置计数。
             try:
                 who = _val_ip(body.get("ip"))
@@ -528,10 +528,10 @@ class Handler(BaseHTTPRequestHandler):
             res = run_action(action, body.get("params") or {}, ip,
                              self.app["probe"].audit,
                              dry=not self.app["probe"].real)
-            # 动作真的改了系统状态（启停服务、封 IP、清日志…），只读缓存要立刻失效，
-            # 否则用户刚点完"启动"，界面还拿旧值告诉他没启动。
-            # 只作废**这个动作影响到的**那几项（见 CACHE_KEYS_FOR_ACTION）：全清会让
-            # 下一个 tick 把 docker / 安全 / 网络那些无关观测一起重查。
+            # 动作确实改变了系统状态（启停服务、封 IP、清日志等）时，只读缓存必须立即失效，
+            # 否则用户刚点完"启动"，界面仍会因缓存旧值显示为未启动。
+            # 只作废**该动作影响到的**相关项（见 CACHE_KEYS_FOR_ACTION）：全量清除会使
+            # 下一个 tick 将 docker / 安全 / 网络等无关观测一并重新查询。
             if res.get("ok") and not res.get("demo"):
                 clear_data_cache(_cache_prefixes_for(action))
             return self._send(200, res)

@@ -6,16 +6,16 @@
 
 ## 背景
 
-面板要管的是**托管机自己**：systemd 单元的启停、进程列表与结束进程、`/var/log` 与 journald、监听端口、防火墙规则。这些全都是宿主机的命名空间里的东西。
+面板要管的是**托管机自己**：systemd 单元的启停、进程列表与终止进程、`/var/log` 与 journald、监听端口、防火墙规则。这些全都是宿主机的命名空间里的东西。
 
-我们刚在 v1m-dash 上验证过容器化面板（挂宿主 `/etc/vlmcsd`、用 supervisord 代替 systemd、通过 unix socket 调 supervisor 的 XML-RPC）。那套做法在「管一个容器里的守护进程」时是合适的，但换成「管整台机器」就会要求：
+此前已在 v1m-dash 上验证过容器化面板（挂载宿主 `/etc/vlmcsd`、以 supervisord 代替 systemd、通过 unix socket 调用 supervisor 的 XML-RPC）。该做法在「管理容器内的守护进程」时是合适的，但换成「管理整台机器」就会要求：
 
 - `privileged` 或至少 `--pid=host` + `--network=host`；
 - 挂载宿主 `/proc`、`/sys`、`/var/log`、`/etc/systemd`；
 - 挂 `docker.sock`（等于交出宿主 root）；
 - systemd 相关的操作要退化成 `nsenter` 或 `systemctl --host`。
 
-也就是说：为了容器化，得先把容器的隔离墙拆掉，再把面板能碰到的宿主路径一个个挂进来。
+也就是说：为了容器化，必须先放弃容器隔离，再逐个挂载面板需要访问的宿主路径。
 
 ## 决策
 
@@ -29,5 +29,5 @@ N1bus 是一个**单文件 Python 标准库程序**，装成宿主机上的 `n1b
 
 ## 备选方案
 
-1. **做成 v1m-dash 的一个标签页**：最省资源、只有一个面板要维护。否决原因：v1m-dash 在容器里，管不到宿主 systemd/进程/文件，那正是这个面板存在的意义；而且两者职责与故障域完全不同（KMS 面板挂了不该影响运维入口）。
+1. **做成 v1m-dash 的一个标签页**：资源占用最低，只需维护一个面板。否决原因：v1m-dash 运行在容器中，无法管理宿主 systemd/进程/文件，而这正是本面板存在的意义；而且两者职责与故障域完全不同（KMS 面板不可用不应影响运维入口）。
 2. **独立容器 + `privileged` + `docker.sock`**：能跑，但等于把宿主 root 通过 socket 暴露给一个 Web 面板，隔离形同虚设，却还要为此维护镜像与挂载清单。收益为负。

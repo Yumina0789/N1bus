@@ -24,8 +24,8 @@ PROTECTED_UNITS = {
     "ssh.service", "sshd.service", "systemd-networkd.service", "systemd-resolved.service",
     "systemd-timesyncd.service", "systemd-journald.service", "cron.service", "docker.service",
     "containerd.service", "n1bus.service", "ufw.service", "networking.service",
-    # fail2ban 的单元是 dpkg 装到 /lib/systemd/system 的，会被"发行版自带"那套判据滤掉，
-    # 但它是这台机器的安全防线（面板还有 fail2ban.unban 动作），必须留在界面上。
+    # fail2ban 的单元由 dpkg 安装到 /lib/systemd/system，会被"发行版自带"判据过滤掉，
+    # 但它是本机的安全防护组件（面板另有 fail2ban.unban 动作），必须保留在界面上。
     "fail2ban.service",
 }
 
@@ -35,7 +35,7 @@ TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){1,2}$")
 def _val_tz(v):
     v = (v or "").strip()
     if not TZ_RE.match(v) or len(v) > 64:
-        raise ValueError("时区格式不对，应该像 Asia/Shanghai")
+        raise ValueError("时区格式无效，应形如 Asia/Shanghai")
     return v
 
 
@@ -55,7 +55,7 @@ def _val_boot_unit(v):
     if not u.endswith(".service"):
         raise ValueError("只支持 .service 单元")
     if u in PROTECTED_UNITS:
-        raise ValueError("这个单元受保护（关掉自启可能失联），面板不允许改")
+        raise ValueError("该单元受保护（关闭开机自启可能导致失联），面板不允许修改")
     return u
 
 
@@ -78,14 +78,14 @@ def _val_port(v):
     """端口号：1-65535 的整数。
 
     不接受服务名（`ssh`、`http` 这类）：服务名由 `/etc/services` 解析，解析结果依赖
-    目标机器上那份文件，面板上显示的名字和实际生效的端口号就可能对不上。数字最明确。
+    目标机器上该文件的内容，面板显示的服务名与实际生效的端口号可能不一致。使用数字可避免这一歧义。
     """
     s = str(v if v is not None else "").strip()
     if not s.isdigit():
-        raise ValueError("端口要是 1-65535 的整数")
+        raise ValueError("端口必须为 1-65535 的整数")
     n = int(s)
     if not (1 <= n <= 65535):
-        raise ValueError("端口要在 1-65535 之间")
+        raise ValueError("端口必须在 1-65535 范围内")
     return str(n)
 
 
@@ -108,14 +108,14 @@ def _val_dir(v):
 
 # 白名单动作表（ADR 0002：面板不提供任意命令执行，用户能触发的只有这里）。
 #
-# danger 的判据 —— 它现在只回答一个问题：**点下去要不要先弹二次确认**。
+# danger 的判据：仅用于回答一个问题 —— **执行该动作前是否需要二次确认**。
 #   danger=True  会改变系统运行状态，或结果不可逆且影响面大：
-#                停服务/容器、删容器、杀进程、封 IP（可能把自己关在门外）、
+#                停止服务/容器、删除容器、结束进程、封禁 IP（可能导致管理端自身被拒于管理通道之外）、
 #                重启面板、重启整机、取消开机自启。
 #   danger=False 只是读取、幂等重载、或**回收磁盘空间**（日志/缓存/无标签镜像）：
-#                清理类不碰任何在跑的东西，删掉的都是已经没用的字节，
-#                所以不给二次确认添堵 —— 但无论 danger 与否，动作**一律写审计**。
-# 新增动作时按上面的判据标，别随手抄 True。
+#                清理类动作不触碰任何运行中的资源，删除的都是已失效的数据，
+#                因此不额外增加二次确认环节 —— 但无论 danger 取值如何，动作**一律写入审计**。
+# 新增动作时按上述判据确定 danger 取值，不要直接复制为 True。
 ACTIONS = {
     "service.start": {"label": "启动服务", "desc": "systemctl start <单元>",
                       "params": {"unit": _val_unit}, "danger": False,
@@ -132,7 +132,7 @@ ACTIONS = {
     "docker.start": {"label": "启动容器", "desc": "docker start <容器>",
                      "params": {"name": _val_name}, "danger": False,
                      "argv": lambda p: ["docker", "start", p["name"]]},
-    "docker.rm": {"label": "删除容器", "desc": "docker rm -f <名称>（强制停止并移除，数据卷不动）",
+    "docker.rm": {"label": "删除容器", "desc": "docker rm -f <名称>（强制停止并移除，不影响数据卷）",
                   "params": {"name": _val_name}, "danger": True,
                   "argv": lambda p: ["docker", "rm", "-f", p["name"]], "timeout": 60},
     "docker.restart": {"label": "重启容器", "desc": "docker restart <容器>",
@@ -147,7 +147,7 @@ ACTIONS = {
     "process.term": {"label": "结束进程（TERM）", "desc": "kill -TERM <pid>",
                      "params": {"pid": _val_pid}, "danger": True,
                      "argv": lambda p: ["kill", "-TERM", p["pid"]]},
-    "process.kill": {"label": "强杀进程（KILL）", "desc": "kill -KILL <pid>",
+    "process.kill": {"label": "强制结束进程（KILL）", "desc": "kill -KILL <pid>",
                      "params": {"pid": _val_pid}, "danger": True,
                      "argv": lambda p: ["kill", "-KILL", p["pid"]]},
     "ufw.deny": {"label": "防火墙封禁来源 IP", "desc": "ufw deny from <ip>",
@@ -157,8 +157,8 @@ ACTIONS = {
                    "params": {"ip": _val_ip}, "danger": False,
                    "argv": lambda p: ["ufw", "--force", "delete", "deny", "from", p["ip"]],
                    "timeout": 30},
-    # 开放 / 关闭端口本身不是命令执行，但它改变这台机器的对外暴露面：把一条
-    # ufw allow 写下去，一个原本只监听内网的服务就上了公网。所以两个都算危险动作。
+    # 开放 / 关闭端口本身不是命令执行，但它改变这台机器的对外暴露面：写入一条
+    # ufw allow 规则，原本仅监听内网的服务即可从公网访问。因此两个都判定为危险动作。
     # 方向必须显式传给 ufw：`allow` 与 `allow out` 是两条不同的规则。
     "ufw.allow": {"label": "防火墙开放端口",
                   "desc": "ufw allow <in|out> <port>/<proto>",
@@ -179,7 +179,7 @@ ACTIONS = {
                        "argv": lambda p: ["fail2ban-client", "set", p["jail"], "unbanip", p["ip"]]},
     "panel.restart": {"label": "重启面板服务", "desc": "systemctl restart n1bus.service（延迟 2 秒）",
                       "params": {}, "danger": True,
-                      # 延迟 2 秒：先让「已排程」的响应与审计回到浏览器，再动手重启自己
+                      # 延迟 2 秒：先让「已排程」响应与审计记录返回浏览器，再执行面板自身的重启
                       "argv": lambda p: ["systemd-run", "--on-active=2", "--collect",
                                          "--unit=n1bus-self-restart-%d" % int(time.time()),
                                          "systemctl", "restart", "n1bus.service"],
@@ -196,7 +196,7 @@ ACTIONS = {
     "boot.disable": {"label": "取消开机自启", "desc": "systemctl disable <单元>",
                      "params": {"unit": _val_boot_unit}, "danger": True,
                      "argv": lambda p: ["systemctl", "disable", p["unit"]], "timeout": 60},
-    "docker.autostart": {"label": "设置容器自启", "desc": "docker update --restart=always|no <容器>",
+    "docker.autostart": {"label": "设置容器开机自启", "desc": "docker update --restart=always|no <容器>",
                          "params": {"name": _val_name, "on": _val_bool}, "danger": False,
                          "argv": lambda p: ["docker", "update",
                                             "--restart=" + ("always" if p["on"] else "no"),
@@ -226,7 +226,7 @@ ACTIONS = {
     "clean.apt_cache": {"label": "清理 apt 下载缓存", "desc": "apt-get clean",
                         "params": {}, "danger": False,
                         "argv": lambda p: ["apt-get", "clean"], "timeout": 120},
-    "clean.old_gz_logs": {"label": "删除 30 天前的轮转日志", "desc": "只删 /var/log 下 *.gz 且 mtime > 30 天",
+    "clean.old_gz_logs": {"label": "删除 30 天前的轮转日志", "desc": "仅删除 /var/log 下 *.gz 且 mtime 超过 30 天的文件",
                           "params": {}, "danger": False,
                           "argv": lambda p: ["find", "/var/log", "-type", "f", "-name", "*.gz",
                                              "-mtime", "+30", "-delete"], "timeout": 60},
@@ -245,14 +245,14 @@ def list_actions():    return [{"name": k, "label": v["label"], "desc": v["desc"
 
 
 def run_action(name, params, ip, audit, dry=False):
-    """执行一个白名单动作。参数逐个过校验器，argv 直接交给 subprocess（不经 shell）。
+    """执行一个白名单动作。参数逐个经校验器校验，argv 直接传给 subprocess（不经过 shell）。
 
-    dry=True 时只走到"命令已拼好"这一步就返回（演示模式）：这样校验、审计、返回
-    结构都和真机一致，只有最后一步不真的执行 —— 两条路的代码不分叉。
+    dry=True 时（演示模式）在命令组装完成后即返回：这样校验、审计与返回结构都与真实
+    执行路径一致，仅最后一步不实际执行 —— 两条路径共用同一段代码。
     """
     spec = ACTIONS.get(name)
     if not spec:
-        return {"ok": False, "error": "没有这个动作：%s" % (name or "(空)")}
+        return {"ok": False, "error": "该动作不存在：%s" % (name or "（为空）")}
     clean = {}
     for key, validator in (spec.get("params") or {}).items():
         try:
@@ -261,11 +261,11 @@ def run_action(name, params, ip, audit, dry=False):
             return {"ok": False, "error": "参数 %s 不合法：%s" % (key, e)}
     argv = spec["argv"](clean)
     if not argv or not all(isinstance(a, str) and a and "\x00" not in a for a in argv):
-        return {"ok": False, "error": "拼出来的命令不合法，已拦下"}
+        return {"ok": False, "error": "构造出的命令不合法，已拦截"}
     if dry:
-        entry = audit.write(name, " ".join(argv[1:]) or "-", True, "演示模式：未真的执行", ip)
+        entry = audit.write(name, " ".join(argv[1:]) or "-", True, "演示模式：未实际执行", ip)
         return {"ok": True, "demo": True, "argv": argv, "code": 0,
-                "out": "演示模式：这条命令没有真的执行。", "err": "", "detail": "demo",
+                "out": "演示模式：该命令未实际执行。", "err": "", "detail": "demo",
                 "audit": entry, "danger": spec.get("danger", False)}
     code, out, err = run(argv, timeout=spec.get("timeout", 30))
     detail = (out.strip() or err.strip())[:600]

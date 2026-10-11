@@ -18,7 +18,7 @@ n1bus —— 服务器管理面板的入口。
     n1bus_kms       KMS 授权服务（只读 + 白名单写转发）
     n1bus_web       HTTP 层（Handler + 页面拼装）
 
-两条硬规矩（原样保留，见 docs/adr/）：
+两条硬性约束（内容原样保留，见 docs/adr/）：
 
 * **不提供任意命令执行**。只有 n1bus_actions 里写死的白名单动作，参数以列表
   形式交给 subprocess，不经过 shell；危险动作界面二次确认 + 无论成败都写审计。
@@ -62,8 +62,8 @@ HERE = Path(__file__).resolve().parent
 
 
 def main():
-    # 控制台编码可能是 GBK / ASCII（Windows、LANG=C 的 Linux 都是），一句中文横幅就能
-    # 让整个面板起不来。先把输出通道统一成 UTF-8 且遇错不炸。
+    # 控制台编码可能是 GBK / ASCII（Windows 与 LANG=C 的 Linux 均如此），一行中文横幅
+    # 就会让面板无法启动。因此先把输出通道统一设为 UTF-8，解码失败时替换字符而不中断进程。
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -122,7 +122,7 @@ def main():
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        sys.exit("数据目录建不了：%s" % e)
+        sys.exit("无法创建数据目录：%s" % e)
 
     token = args.token or os.environ.get("N1BUS_TOKEN") or ""
     token_file = Path(args.token_file) if args.token_file else data_dir / "n1bus.token"
@@ -136,7 +136,7 @@ def main():
                 token_file.write_text(token, encoding="utf-8")
                 os.chmod(token_file, 0o600)
             except OSError as e:
-                sys.exit("token 文件写不了：%s" % e)
+                sys.exit("无法写入 token 文件：%s" % e)
 
     sampler = Sampler(interval=args.interval, fake=(args.mode == "demo"))
     audit = Audit(data_dir / "audit.log")
@@ -166,18 +166,18 @@ def main():
     Handler.app = app
 
     # 先把端口占住，再起采样线程：反过来的话 systemd 已经报 active、端口却还没监听，
-    # 健康检查会踩空（install.sh 的健康检查就踩过一次）。
+    # 健康检查会取到未监听的端口而误判（install.sh 的健康检查曾出现一次该误判）。
     servers = []
     for addr in expand_binds(args.bind):
         try:
             srv = ThreadingHTTPServer((addr, args.port), Handler)
         except OSError as e:
-            print("  !! 绑不上 %s:%d（%s）" % (addr, args.port, e))
+            print("  !! 无法绑定 %s:%d（%s）" % (addr, args.port, e))
             continue
         srv.daemon_threads = True
         servers.append((addr, srv))
     if not servers:
-        sys.exit("一个地址都没绑上，退出")
+        sys.exit("没有任何地址绑定成功，退出")
     for _, srv in servers[1:]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     sampler.start()
@@ -194,12 +194,12 @@ def main():
     print("  打开这个地址（已带 token）：http://%s:%d/?token=%s"
           % (servers[0][0] if servers[0][0] != "0.0.0.0" else "127.0.0.1", args.port, token))
     print("  纯 token：%s（机器凭证，浏览器改用账户登录）" % token)
-    print("  忘了 token 就跑：cat %s" % token_file)
+    print("  如需查看 token：cat %s" % token_file)
     print("  数据目录：%s（审计日志 %s）" % (data_dir, data_dir / "audit.log"))
     if accounts.need_setup():
         print("  注意：还没有账户，打开页面先设置账户名与密码")
     else:
-        print("  账户：%s（改密码在面板的「账户」页）" % "、".join(accounts.names()))
+        print("  账户：%s（修改密码见面板「账户」页）" % "、".join(accounts.names()))
     if app["allow_nets"]:
         print("  来源白名单：%s" % "、".join(str(n) for n in app["allow_nets"]))
     if args.mode == "real":
@@ -218,7 +218,7 @@ def main():
     try:
         servers[0][1].serve_forever()
     except KeyboardInterrupt:
-        print("\nbye")
+        print("\n已退出")
 
 
 if __name__ == "__main__":

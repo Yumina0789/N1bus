@@ -98,8 +98,8 @@ class Sampler:
     def _read_disk():
         """一个 (设备, 文件系统) 只留一条。
 
-        真机上 /、/etc、/home、/root 常常是同一个分区的 bind mount，全列出来只是
-        把同一个数字重复八遍。取挂载路径最短的那个（通常是 /）。
+        真机上 /、/etc、/home、/root 常为同一分区的 bind mount，逐一列出只会
+        重复同一个数值。取挂载路径最短的那个（通常是 /）。
         """
         out = {}
         for line in read_text("/proc/mounts").splitlines():
@@ -152,7 +152,7 @@ class Sampler:
 
     # --- 采样循环 ---------------------------------------------------------
     def _fake_snapshot(self):
-        """没有 /proc（比如在 Windows 上跑演示）时给一组仿真的数，别让界面全是 0。"""
+        """在无 /proc 的环境（例如 Windows 上运行演示模式）下返回一组仿真数据，避免界面各项显示为 0。"""
         self._fake_n = getattr(self, "_fake_n", 0) + 1
         wave = (math.sin(self._fake_n / 5.0) + 1) / 2.0
         cpu = round(9 + wave * 52, 1)
@@ -229,7 +229,7 @@ class Sampler:
                 pass
         while not self._stopped:
             try:
-                # 先采一次再睡：否则开局几秒里 latest() 是空的，界面一片 0
+                # 先采样再进入 sleep：否则启动后最初几秒 latest() 为空，界面各项为 0
                 snap = self._snapshot()
                 with self.lock:
                     self.samples.append(snap)
@@ -295,9 +295,9 @@ class HostProbe:
                          "failed_24h_note": "来自 auth.log 全量统计"},
         }
 
-    # ---------------- 系统清理 / 网络 / 磁盘（1Panel 参考切片） ----------------
+    # ---------------- 系统清理 / 网络 / 磁盘（参考 1Panel 的实现） ----------------
     def cleanup(self):
-        """回收空间的账本：这里只统计，不动手；真正删除一律走白名单动作。"""
+        """空间回收统计：此处只做统计，不执行删除；实际删除一律走白名单动作。"""
         items = []
         code, out, _ = run(["journalctl", "--disk-usage"], timeout=20)
         jb = _size_bytes(out) if code == 0 else 0
@@ -351,10 +351,10 @@ class HostProbe:
     BACKUP_ARCHIVE = BACKUP_DIR + "/latest.tar.gz"
 
     def backup_info(self):
-        """备份账本：有哪些数据、多大、上次什么时候打的。
+        """备份清单：包含哪些数据、占用大小与上次备份时间。
 
-        恢复故意不自动化：那要覆盖正在运行的面板数据与容器卷，出事就是自己把自己弄挂。
-        页面给出 SSH 恢复命令，人要动手时自己动手。
+        恢复流程刻意不自动化：它会覆盖正在运行的面板数据与容器卷，一旦出错将导致面板自身不可用。
+        页面提供 SSH 恢复命令，由管理员手动执行。
         """
         try:
             os.makedirs(self.BACKUP_DIR, exist_ok=True)
@@ -398,23 +398,23 @@ class HostProbe:
         if not path:
             target = os.path.realpath(FILE_ROOTS[0])
         else:
-            # 分三种情况给三种话：越界 / 不存在 / 不是目录。混成一句
-            # "不在允许浏览的目录里" 会让人以为是自己打错，其实可能是真越界。
+            # 分三种情况给出三种提示：越界 / 不存在 / 不是目录。统一返回一句
+            # 「不在允许浏览的目录里」会让用户误以为是自己输入错误，而实际可能是越权访问。
             inside = safe_path(path)
             if inside is None:
                 return {"path": path, "parent": "", "roots": list(FILE_ROOTS), "entries": [],
                         "truncated": False,
-                        "error": "这个位置不在允许浏览的白名单里，一律不可达：%s" % str(path)[:120]}
+                        "error": "该路径不在允许浏览的白名单内，不可访问：%s" % str(path)[:120]}
             if not os.path.lexists(inside):
                 return {"path": path, "parent": "", "roots": list(FILE_ROOTS), "entries": [],
-                        "truncated": False, "error": "没有这个路径：%s" % inside}
+                        "truncated": False, "error": "路径不存在：%s" % inside}
             if not os.path.isdir(inside):
                 return {"path": path, "parent": "", "roots": list(FILE_ROOTS), "entries": [],
-                        "truncated": False, "error": "这是个文件，不是目录：%s" % inside}
+                        "truncated": False, "error": "目标不是目录，而是文件：%s" % inside}
             target = inside
         if target is None:
             return {"path": path, "parent": "", "roots": list(FILE_ROOTS), "entries": [],
-                    "truncated": False, "error": "路径不在允许浏览的目录里"}
+                    "truncated": False, "error": "路径不在允许浏览的目录内"}
         entries = []
         try:
             with os.scandir(target) as it:
@@ -437,7 +437,7 @@ class HostProbe:
             parent = ""
         # 每个白名单根此刻能不能写。服务是 systemd 跑的、带 ProtectSystem=full，
         # /etc 下是只读绑定挂载 —— os.access 能如实反映（那层挂载真的不可写）。
-        # 前端据此把"只读"的根标出来，省得用户点了半天才发现存不了。
+        # 前端据此标记只读白名单根，避免用户在多次尝试后才发现无法写入。
         roots_writable = {}
         for root in FILE_ROOTS:
             rr = os.path.realpath(root)
@@ -452,7 +452,7 @@ class HostProbe:
         real = safe_path(path, want_dir=False)
         if real is None:
             return {"path": path, "size": 0, "lines": [], "truncated": False,
-                    "error": "路径不在允许浏览的目录里，或者不是普通文件"}
+                    "error": "路径不在允许浏览的目录内，或不是普通文件"}
         try:
             size = os.path.getsize(real)
             with open(real, "rb") as fh:
@@ -480,26 +480,26 @@ class HostProbe:
     # 无论成败都进审计，与动作表同等对待。
 
     def file_read(self, path=""):
-        """读完整文本供编辑。超上限或二进制一律拒绝 —— 让用户去下载，别把面板拖死。"""
+        """读取完整文本用于编辑。超过上限或为二进制时一律拒绝，并引导用户改用下载，避免面板进程被大文件拖慢。"""
         real = safe_path(path, want_dir=False)
         if real is None:
-            return {"ok": False, "error": "路径不在允许浏览的目录里，或者不是普通文件"}
+            return {"ok": False, "error": "路径不在允许浏览的目录内，或不是普通文件"}
         try:
             size = os.path.getsize(real)
             if size > FILE_EDIT_MAX:
-                return {"ok": False, "error": "文件 %s，超过面板可编辑上限（%s），请用下载"
+                return {"ok": False, "error": "文件 %s 超过面板可编辑上限（%s），请改用下载"
                         % (_human_size(size), _human_size(FILE_EDIT_MAX))}
             with open(real, "rb") as fh:
                 blob = fh.read()
         except OSError as ex:
             return {"ok": False, "error": str(ex)[:140]}
         if b"\x00" in blob[:8192]:
-            return {"ok": False, "error": "二进制文件，不能在这编辑（可以下载）"}
+            return {"ok": False, "error": "二进制文件不支持在线编辑（可下载）"}
         return {"ok": True, "path": real, "size": size,
                 "text": blob.decode("utf-8", "replace")}
 
     def _backup(self, real):
-        """覆盖前留一份 .bak。失败不致命 —— 不该因为备份不了就不让用户存。"""
+        """覆盖前保存一份 .bak。备份失败不构成阻断：不应因备份失败而拒绝写入。"""
         try:
             if os.path.isfile(real):
                 shutil.copy2(real, real + ".bak")
@@ -536,7 +536,7 @@ class HostProbe:
             return {"ok": False, "error": err}
         data = bytes(data or b"")
         if len(data) > FILE_UPLOAD_MAX:
-            return {"ok": False, "error": "超过单次上传上限（%s）" % _human_size(FILE_UPLOAD_MAX)}
+            return {"ok": False, "error": "文件大小超过单次上传上限（%s）" % _human_size(FILE_UPLOAD_MAX)}
         parent = os.path.dirname(real)
         existed = os.path.isfile(real)
         backed = self._backup(real)
@@ -606,7 +606,7 @@ class HostProbe:
         return {"ok": True, "path": dst_real}
 
     def file_delete(self, path="", recursive=False, ip=""):
-        """删除。目录默认只允许空目录 —— 要整棵删掉必须显式 recursive。"""
+        """删除。目录默认仅允许空目录 —— 如需连同内容递归删除，必须显式传入 recursive。"""
         real, err = safe_write_path(path, must_exist=True)
         if err:
             return {"ok": False, "error": err}
@@ -616,7 +616,7 @@ class HostProbe:
                     shutil.rmtree(real)
                 else:
                     if os.listdir(real):
-                        return {"ok": False, "error": "目录非空；要连内容一起删得勾选「连同内容」"}
+                        return {"ok": False, "error": "目录非空；如需连同内容一并删除，请勾选「连同内容」"}
                     os.rmdir(real)
             else:
                 os.remove(real)
@@ -632,15 +632,15 @@ class HostProbe:
 
         两个要点：
         * 查"全部服务"而不是只查 --state=enabled —— 否则刚被停掉自启的单元会从列表里消失，
-          用户看到的不是"按钮变成「自启」"，而是"这一行没了"。
+          用户看到的不是"按钮变成「开机自启」"，而是"这一行没了"。
         * 只列**用户/第三方装的**单元（判据不是名字前缀，漏得多，而是**单元文件在哪**）：
           直接从 /etc/systemd/system 读，一次 scandir ~1 ms；以前跑
           `systemctl list-unit-files` 要 0.95 s（带 --state filter 1.84 s），
-          而每一次写操作后缓存失效都要重付一遍 —— 那才是"点完按钮等一秒"的真凶。
-          受保护单元始终保留，免得它们从界面上消失。
+          而每次写操作后缓存失效都会重新付出该开销 —— 这才是「点击按钮后等待约一秒」的根本原因。
+          受保护单元始终保留，以免它们从界面上消失。
         """
         names = _etc_service_units()
-        if names is None:                    # 目录读不到：退回全量扫描，慢但不会瞎
+        if names is None:                    # 目录不可读：回退到全量扫描，较慢但结果完整
             names = set(_all_service_units())
         else:
             names |= PROTECTED_UNITS
@@ -658,7 +658,7 @@ class HostProbe:
             units.append({"unit": unit, "state": state, "enabled": state == "enabled",
                           # 只有 enabled / disabled 才真能用 systemctl 开关。
                           # static（snap.lxd.daemon 这种没有 [Install] 段的）enable 会失败；
-                          # masked 同理。给它们画按钮 = 点了必然失败 + 状态跳回去，纯误导。
+                          # masked 同理。为其提供切换按钮会导致操作必然失败且状态回退，属于误导性界面。
                           "togglable": state in ("enabled", "disabled"),
                           "protected": unit in PROTECTED_UNITS})
         _, act, _ = run(["systemctl", "list-units", "--type=service", "--state=running",
@@ -675,7 +675,7 @@ class HostProbe:
         _, cnames, _ = run(["docker", "ps", "-a", "--format", "{{.Names}}"], timeout=25)
         boxes = _docker_autostart(cnames.split()) if cnames.split() else []
         return {"units": units, "containers": boxes,
-                "note": "ssh / 网络 / docker / 面板等受保护，不允许取消自启"}
+                "note": "ssh / 网络 / docker / 面板等受保护，不允许取消开机自启"}
 
     def sys_settings(self):
         """时区 / NTP / swap。swap 只读：新建 swap 是分区与文件系统级操作，面板不做。"""
@@ -752,7 +752,7 @@ class HostProbe:
                 "note": "Docker 发布的端口不经过 ufw，实际对外暴露 = ufw 放行 ∪ Docker 发布"}
 
     def disks(self):
-        """磁盘与挂载只读：lsblk 树 + df；SMART 要 smartmontools，没装就说明。"""
+        """磁盘与挂载只读：lsblk 树 + df；SMART 依赖 smartmontools，未安装时在结果中说明。"""
         tree = None
         code, out, _ = run(["lsblk", "-J", "-o", "NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT,MODEL"],
                            timeout=20)
@@ -827,21 +827,21 @@ class _DemoDocker:
                 "running": sum(1 for c in out if c["running"])}
 
     def dsh(self):
-        # 演示模式给一个一眼假的 token，别让它在真机上能用
+        # 演示模式返回一个明显无效的 token，确保它无法在真机上使用
         return {"available": True, "container": DSH_CONTAINER, "state": "running",
                 "started": "2026-10-10T10:35:00Z",
                 "url": DSH_PUBLIC_BASE + "?token=demo-not-a-real-token-0000",
                 "hint": "", "error": ""}
 
     def logs(self, name, lines=200, since="", until="", grep="", timestamps=False):
-        # 校验与真机一致：演示模式也不能对非法参数、非法容器名睁一只眼
+        # 校验与真机保持一致：演示模式同样不接受非法参数或非法容器名
         if not NAME_RE.match(name or ""):
             return {"available": False, "lines": [], "cmd": "", "error": "容器名不合法"}
         for flag, val in (("--since", since), ("--until", until)):
             v = (val or "").strip()
             if v and not LOG_TIME_RE.match(v):
                 return {"available": False, "lines": [], "cmd": "",
-                        "error": "%s 只接受 30m / 2h / 1d 或 2026-10-09T05:00 这样的时间" % flag}
+                        "error": "%s 只接受 30m / 2h / 1d 或 2026-10-09T05:00 格式的时间" % flag}
         try:
             lines = max(1, min(int(lines), 5000))
         except (TypeError, ValueError):
@@ -1086,7 +1086,7 @@ class DemoProbe:
                           "from 39.144.169.199 port 51235 ssh2"],
                 "truncated": False, "error": ""}
 
-    # --- 文件管理（demo：只回话，绝不碰真文件系统）----------------------
+    # --- 文件管理（演示：仅返回响应，不访问真实文件系统）------------------
 
     def file_read(self, path=""):
         return {"ok": True, "path": path or "/var/log/auth.log", "size": 96,
@@ -1122,12 +1122,12 @@ class DemoProbe:
              "running": True},
             {"unit": "fail2ban.service", "state": "enabled", "enabled": True, "protected": False,
              "running": True},
-            # 一个"未启用"的单元 —— 界面上它应该显示「自启」按钮
+            # 一个"未启用"的单元 —— 界面上它应该显示「开机自启」按钮
             {"unit": "nginx.service", "state": "disabled", "enabled": False, "protected": False,
              "running": False}],
             "containers": [{"name": "caddy", "policy": "unless-stopped", "autostart": True},
                            {"name": "kms", "policy": "always", "autostart": True}],
-            "note": "ssh / 网络 / docker / 面板等受保护，不允许取消自启"}
+            "note": "ssh / 网络 / docker / 面板等受保护，不允许取消开机自启"}
 
     def sys_settings(self):
         return {"timezone": "Etc/UTC", "ntp": True, "ntp_synced": True, "rtc_local": False,

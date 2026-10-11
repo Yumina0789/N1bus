@@ -9,7 +9,7 @@ import time
 # 逐个 systemctl show 约 8ms，210 个约 1.5s；这份缓存让它每个进程只付出一次代价。
 UNIT_PATH_CACHE = {}
 UNIT_STATE_CACHE = {}
-UNIT_PROBED = set()          # 问过 systemctl 的单元（问不到也算问过，别反复问）
+UNIT_PROBED = set()          # 已向 systemctl 查询过的单元（查询失败也计入，避免重复查询）
 
 
 # --------------------------------------------------------------------------
@@ -19,14 +19,14 @@ UNIT_PROBED = set()          # 问过 systemctl 的单元（问不到也算问�
 #   systemctl list-unit-files --type=service --state=enabled   ≈ 1.8 s   ← /api/autostart
 #   apt-get -s autoremove                                      ≈ 0.9 s   ← /api/cleanup
 #   fail2ban-client status[+jail] + ufw status verbose         ≈ 0.3 s   ← /api/security
-# 这些命令的输出在几秒内不会变，但前端每次轮询/切页都重跑一次。机器只有 2 vCPU，
-# 代价不只是慢，还有每次 fork 的 CPU 抖动。
+# 这些命令的输出在数秒内不会变化，但前端每次轮询或切页都会重新执行一次。机器仅有 2 vCPU，
+# 代价除响应延迟外，还有每次 fork 带来的 CPU 抖动。
 #
-# 规矩（与"不假装"那条设计原则对齐）：
+# 约定（与"不伪造状态"设计原则一致）：
 #   * **只缓存只读观测**。任何写操作、任何随参数变化的结果都不进这里。
 #   * TTL 一律短（默认 15 s，最多 30 s）。数据新鲜度有界，且响应里会带 cache 元数据，
 #     界面能如实说明"这批数据可能是 N 秒前的"。
-#   * 任何缓存命中都可以被 `?fresh=1` 强制绕过 —— 用户点"刷新"就该拿到当下的真值。
+#   * 任何缓存命中都可以被 `?fresh=1` 强制绕过 —— 用户点击"刷新"时应获取当前真实值。
 #   * 缓存只在内存里，进程重启即空（和采样曲线一样，不落库）。
 DATA_CACHE_TTL = 15.0   # 常规观测
 SLOW_CACHE_TTL = 30.0   # 要等子进程的那几条（systemctl / docker ps / ip route）
@@ -53,7 +53,7 @@ def _cache_key_name(k):
     条目，这里就会抛 AttributeError。
 
     这个错误的代价不小：它发生在 `do_POST` 里、动作**已经执行完并写过审计之后**，
-    于是现象是「动作明明成功了，面板却报 JSON 解析失败」—— 因为异常把响应体也带走了。
+    于是现象是「动作实际已成功，面板却报 JSON 解析失败」—— 因为异常把响应体一并带走了。
     """
     if isinstance(k, tuple) and k and isinstance(k[0], str):
         return k[0]
@@ -63,8 +63,8 @@ def _cache_key_name(k):
 def clear_data_cache(prefixes=None):
     """作废只读缓存。
 
-    给 prefixes 就只删以这些前缀开头的缓存键（写操作按影响面精确作废）；
-    不给（None）就全清 —— 老调用与"拿不准影响面"的情况都走这条。
+    传入 prefixes 时只删除以这些前缀开头的缓存键（写操作按影响面精确作废）；
+    不传（None）时全部清空 —— 旧调用与「无法确定影响面」的情况都走这条。
     返回被删掉的键，方便自检与排查。
     """
     with _CACHE_LOCK:
@@ -80,8 +80,8 @@ def clear_data_cache(prefixes=None):
     # 单元属性缓存**无条件作废**，不看 prefixes。
     # 这些是模块级的、**没有过期时间**的进程内缓存（为了省 systemctl show 的 8ms/个）。
     # 任何写操作都可能改 UnitFileState / ActiveState，留下旧值就会出现：
-    #   systemctl 明明已经 disabled，面板还坚持显示 enabled —— 于是「点自启没反应」。
-    # 重查一批量只要 ~10ms，宁可清掉。
+    #   systemctl 实际已 disabled，面板仍显示 enabled —— 于是表现为「点击开机自启无反应」。
+    # 重新查询一批单元仅需约 10ms，因此选择清空。
     UNIT_STATE_CACHE.clear()
     UNIT_PATH_CACHE.clear()
     UNIT_PROBED.clear()
@@ -89,9 +89,9 @@ def clear_data_cache(prefixes=None):
 
 
 # 写操作 → 要作废哪些只读缓存。
-# 以前是"任何动作成功后清空全部"：点一下「取消自启」，docker / 安全 / 网络那些
-# 毫不相干的观测也一起被打掉，下一个 tick 全部重查 —— 2 vCPU 上就是白烧一秒多。
-# 现在按下表精确作废；**没登记的动作一律全清**（宁可多清，不可留陈旧值）。
+# 此前是"任何动作成功后清空全部"：点击一次「取消开机自启」，docker / 安全 / 网络等
+# 无关观测也会一并作废，下一轮采样全部重查 —— 在 2 vCPU 上即多消耗一秒以上 CPU 时间。
+# 现按下表精确作废；**未登记的动作一律全清**（优先避免残留陈旧值，允许过度清除）。
 # 注意字典顺序即匹配顺序：更具体的前缀写在前面（docker.autostart vs docker.*）。
 CACHE_KEYS_FOR_ACTION = {
     "docker.autostart": ("HostProbe.autostart",),
@@ -129,7 +129,7 @@ def cached(ttl, key=None):
     要求被装饰的方法：只读、幂等、**参数可枚举**。
     * 无参方法：不传 key，整份结果一个缓存槽。
     * 带参方法：必须传 key=lambda self, *a, **kw: "..."，把参数折进缓存键。
-      参数空间不可控的方法（比如按关键字搜日志）**不要**用它 —— 会撑爆缓存。
+      参数空间不可控的方法（例如按关键字搜索日志）**不要**使用 —— 会使缓存无限增长。
 
     返回的是拷贝：调用方随便改，不会污染缓存里那份。
     """
@@ -150,7 +150,7 @@ def cached(ttl, key=None):
             k = (name, key(self, *args, **kwargs)) if key else name
             if key is not None:
                 slot(k)
-            if getattr(_CACHE_LOCAL, "fresh", False):   # ?fresh=1：这一趟必须取真值
+            if getattr(_CACHE_LOCAL, "fresh", False):   # ?fresh=1：本次请求必须取真实值
                 val = fn(self, *args, **kwargs)
                 with _CACHE_LOCK:
                     _CACHE[k] = (time.time(), copy.deepcopy(val))
@@ -177,7 +177,7 @@ def cached(ttl, key=None):
 
 
 def _cache_methods(cls, mapping):
-    """类定义完再打补丁：免得到处改类体，也让"哪些被缓存了"一眼看得全。
+    """在类定义完成后统一打补丁：避免在类体中逐处修改，也便于集中查看「哪些方法被缓存」。
 
     mapping 的值：ttl 秒数，或 (ttl, key_fn) —— 带参数的方法必须走后者。
     """
@@ -190,7 +190,7 @@ def _cache_methods(cls, mapping):
 def _trim_services(res, q):
     """服务列表按 `?limit=` 裁剪（P9：真机上 210 个单元 ≈ 19.5 KB）。
 
-    默认**不裁** —— 界面的搜索框要在全部单元里找，悄悄截断等于骗人；
+    默认**不裁剪** —— 界面搜索框需要在全部单元中查找，静默截断会使结果与预期不符；
     只有调用方明确给了 limit 才截，并如实带上 total / truncated。
     """
     try:

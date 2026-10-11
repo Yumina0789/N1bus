@@ -43,16 +43,16 @@ def dur_text(sec):
 
 
 def run(argv, timeout=15, cwd=None):
-    """跑一条命令。argv 是列表，绝不经过 shell。
+    """执行一条命令。argv 为列表，不经过 shell。
 
     返回 (返回码, stdout, stderr)。命令不存在/超时都不抛异常，返回码用负数表达：
-    -1 = 起不来（缺命令），-2 = 超时。
+    -1 = 无法启动（命令缺失），-2 = 超时。
     """
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd)
         return p.returncode, p.stdout or "", p.stderr or ""
     except FileNotFoundError:
-        return -1, "", "找不到命令：%s" % argv[0]
+        return -1, "", "未找到命令：%s" % argv[0]
     except subprocess.TimeoutExpired:
         return -2, "", "命令超时（%ss）：%s" % (timeout, " ".join(argv))
     except (OSError, subprocess.SubprocessError) as e:  # noqa: BLE001
@@ -71,7 +71,7 @@ def same_secret(a, b):
     """定时安全比较。
 
     compare_digest 只吃 ASCII 的 str，碰上非 ASCII 会抛 TypeError —— 而 token 是
-    用户输入，随手发个中文就能把请求处理线程打崩（连接直接断，连 403 都回不去）。
+    用户输入，一个中文字符即可让请求处理线程异常中断（连接直接断开，连 403 都返回不了）。
     统一编码成 bytes 再比。
     """
     return secrets.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
@@ -81,7 +81,7 @@ def docker_bridge_addresses():
     """宿主在 docker 网桥上的地址（docker0 与 br-*）。
 
     反向代理通常跑在容器里，只能通过网桥网关找宿主 —— 所以面板除了回环，还得在这
-    个地址上听一份。用 ip 命令现场问，网段变了也不怕。
+    个地址上监听一份。用 ip 命令实时查询，网段变化时仍能正确获取。
     """
     code, out, _ = run(["ip", "-4", "-o", "addr", "show"], timeout=10)
     addrs = []

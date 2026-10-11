@@ -1,5 +1,5 @@
 /* ============================================================================
-   N1bus 皮肤 v2 —— 白蓝 · 细磨砂（二次元清爽风，2026-10 定稿）
+   N1bus 主题 v2 —— 白蓝 · 细磨砂（浅色清爽风格，2026-10 定稿）
    规则：只重定义旧类名的视觉，不发明新结构 —— 160 处 id 与全部 JS 不动。
    ============================================================================ */
 /* ============================================================================
@@ -19,7 +19,7 @@
 
    为什么运行页的日志一律折叠：内容每次轮询都在变，展开会让整页跟着跳。
 
-   新增折叠块时照这条判据决定；要改判据就改这一处注释，别让默认态散落到各处。
+   新增折叠块时按该判据决定；调整判据时只修改此处注释，避免默认态声明分散到多处。
    ============================================================================ */
 :root{
   --pri:#2b7fff;--pri-hi:#5ac8ff;
@@ -78,7 +78,7 @@ code,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",mo
        -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--shadow)}
 nav.glass,.subnav.glass{background:var(--glasshead)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  /* 关掉硬件加速的远程桌面上看不出磨砂，退回半透明白，别糊字 */
+  /* 禁用硬件加速的远程桌面环境下磨砂效果不可见，退回半透明白，以保证文字清晰 */
   .glass,.panel,details.fold{background:rgba(255,255,255,.93)}
   :root[data-theme=dark] .glass,:root[data-theme=dark] .panel,
   :root[data-theme=dark] details.fold{background:rgba(16,26,44,.94)}
@@ -170,7 +170,7 @@ main{flex:1 1 auto;max-width:none;margin:0;padding:18px 18px 48px}
        transition:width .4s}
 .bar.warn>i{background:linear-gradient(90deg,#fbbf24,var(--warn))}
 .bar.bad>i{background:linear-gradient(90deg,#fb7185,var(--bad))}
-/* 磁盘用量：挂载点 / 条形 / 数值 三列对齐，条形把剩余宽度吃掉 */
+/* 磁盘用量：挂载点 / 条形 / 数值 三列对齐，条形占用剩余宽度 */
 .disk-use{margin-top:10px;display:flex;flex-direction:column;gap:9px}
 .du-row{display:grid;grid-template-columns:118px minmax(70px,1fr) auto;
         align-items:center;gap:12px;font-size:12.5px}
@@ -194,7 +194,7 @@ details.fold[open]>summary::after{transform:rotate(90deg)}
 details.fold>summary:hover{background:var(--accent-weak)}
 details.fold>summary .ico{color:var(--accent);width:16px;height:16px}
 details.fold>summary .q{font-weight:400;color:var(--dim2);font-size:12px}
-/* 收起时只留标题：说明文字由 JS 直接移除，这里兜底 */
+/* 收起时只保留标题：说明文字由 JS 直接移除，此处为降级保护 */
 details.fold:not([open])>summary .q{display:none}
 details.fold>summary .end{margin-left:auto;font-weight:400;color:var(--dim);font-size:12px}
 details.fold>summary .end+.end{margin-left:8px}
@@ -208,14 +208,14 @@ details.fold .foldbody>.scroll:first-child,details.fold .foldbody>.kv:first-chil
 details.fold .foldbody>p.hint,details.fold .foldbody>div.hint{margin-top:8px}
 
 /* ---------- 表格 ---------- */
-/* 高度取「表头 32 + 14 行 × 28 + 边框 2」，滚动时不会把最后一行切成半截 */
+/* 高度取「表头 32 + 14 行 × 28 + 边框 2」，滚动时不会截断最后一行 */
 .scroll{border:1px solid var(--line);border-radius:11px;background:var(--panel2);overflow:auto;max-height:426px}
 table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
 th,td{text-align:left;padding:0 12px;border-bottom:1px solid var(--line-soft);white-space:nowrap;
       height:28px;line-height:1.4}
 th{height:32px;color:var(--dim2);font-weight:500;font-size:12px;background:var(--panel);
    position:sticky;top:0;-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);z-index:1}
-/* 表头（栏目标题）一律居中，别被 .num 推到右边；单元格内容仍按各自对齐 */
+/* 表头（栏目标题）一律居中，不受 .num 影响而右对齐；单元格内容仍按各自规则对齐 */
 thead th,thead th.num{text-align:center}
 tbody tr:hover{background:var(--accent-weak)}
 tbody tr:last-child td{border-bottom:none}
@@ -233,32 +233,32 @@ button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);bac
 button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
 /* Harness 页：一条细工具条 + 尽量大的 iframe。
-   这个页面是拿来干活的，不是拿来看说明的 —— 所以常驻文案全部去掉，
-   只在真出问题（取不到链接）时冒一行提示。
+   这个页面用于实际操作，而非阅读说明 —— 因此常驻文案全部去掉，
+   仅在确实出错（无法获取链接）时显示一行提示。
    高度走 flex 撑满 main，不再用 100vh 硬减，窗口大小变了也不会错位。 */
 /* 高度交给 JS 按视口算（见 sizeDshFrame）。
-   别用 height:100% —— 手机端 N1bus 的 flex 链（.shell 是 column、高度靠
+   不要使用 height:100% —— 手机端 N1bus 的 flex 链（.shell 是 column、高度靠
    min-height 撑着）给不出「确定高度」，百分比会退化成 auto，iframe 就只剩
-   min-height 那一小块：实测手机上只有 340×360，DSH 界面当然严重变形。 */
+   min-height 那一小块：实测手机上仅 340×360，DSH 界面因此严重变形。 */
 #sub-harness{display:flex;flex-direction:column}
 #sub-harness .dsh-panel{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;
   margin-bottom:0;padding:12px 14px}
 /* 工具条：核心操作（启动 / 停止 / 重启）在左、辅助操作在右，样式沿用全局 .toolbar。
-   警告：这里**不能**留没有选择器的声明块。CSS 解析器遇到裸声明不会报错停下，
+   注意：这里**不能**出现没有选择器的声明块。CSS 解析器遇到裸声明不会报错停下，
    而是把它当作下一条规则的选择器继续拼，一直拼到 #dshFrame 的 `{` 为止 ——
    于是 #dshFrame 的 border / border-radius / background 整条失效，iframe 回退到
    浏览器默认的 `2px inset` 深色边框，界面上就是那一圈突兀的线。 */
 #dshFrame{flex:1 1 auto;min-height:360px;width:100%;border:1px solid var(--line);
   border-radius:12px;background:var(--card)}
 /* 沉浸模式：把外围（侧边栏、顶栏）收起来，只留 Harness 这一张卡片铺满当前页面。
-   刻意不用浏览器的 Fullscreen API —— 那个要用户手势授权、还会真的把整个窗口
-   切走；这里只是"覆盖当前页面"，Esc 或工具条上的按钮就能原样回来。
+   刻意不用浏览器的 Fullscreen API —— 该 API 需要用户手势授权，且会将整个窗口
+   切换出去；这里仅为「覆盖当前页面」，Esc 或工具条按钮即可恢复原状。
    用「隐藏外围 + 撑满」而不是 position:fixed 覆盖：后者会被祖先的
-   backdrop-filter/transform 之类的包含块影响，算不准铺到哪儿。 */
+   backdrop-filter/transform 之类的包含块影响，无法准确计算覆盖范围。 */
 body.dsh-focusing{overflow:hidden}
-/* 全屏时把外壳全部收掉。原来只隐藏侧栏与顶栏 —— 那时 Harness 是独立标签页，
-   没有子导航；现在它成了「扩展功能」下的子视图，那条 .subnav 会一直占着约 45px，
-   于是「全屏」并不全屏。 */
+/* 全屏时把外壳全部收起。此前只隐藏侧栏与顶栏 —— 那时 Harness 是独立标签页，
+   没有子导航；现在它成为「扩展功能」下的子视图，那条 .subnav 会持续占用约 45px，
+   导致「全屏」并未真正铺满。 */
 body.dsh-focusing .side,
 body.dsh-focusing .topbar,
 body.dsh-focusing .subnav{display:none!important}
@@ -271,8 +271,8 @@ body.dsh-focusing #sub-harness .dsh-panel{height:100%;margin:0;padding:8px 8px 0
   -webkit-backdrop-filter:none;backdrop-filter:none}
 body.dsh-focusing #dshFrame{border-radius:8px 8px 0 0}
 /* 预热态：让 iframe 在「看得见但透明」的状态下把前端初始化完。
-   为什么不能直接挂在 .hidden（display:none）里预热 —— 那样浏览器根本不真正加载它，
-   实测白挂 10 秒，用户点开还得从头来一遍。opacity:0 保留渲染帧（DSH 的初始化要用到），
+   为什么不能直接挂在 .hidden（display:none）里预热 —— 那样浏览器不会真正加载它，
+   实测空等 10 秒，用户点开时仍需重新初始化。opacity:0 保留渲染帧（DSH 的初始化要用到），
    z-index:-1 压到最底层、pointer-events:none 不挡点击，用户看不到也碰不到。 */
 #sub-harness.dsh-preload{display:block!important;position:fixed;inset:0;z-index:-1;
   opacity:0;pointer-events:none}
@@ -281,8 +281,8 @@ body.dsh-focusing #dshFrame{border-radius:8px 8px 0 0}
 @media (max-width:640px){
 }
 /* 手机上让 DSH 自己按窄屏排（它自带响应式：左侧栏会收成一排图标）。
-   刻意**不**给 iframe 设死宽度让它横向拖 —— 手机上左右拖动本身就反直觉，
-   一屏看完才是手机该有的样子。 */
+   刻意**不**给 iframe 设死宽度让它横向拖 —— 手机上左右拖动本身就不符合操作习惯，
+   适配单屏显示更符合移动端使用习惯。 */
 
 button.act.warn{background:var(--card);color:var(--warn);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.warn:hover{color:#fff;background:var(--warn);border-color:var(--warn)}
@@ -300,9 +300,9 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ---------- 文件管理器 ---------- */
-/* 第一行（跳到根 + 路径 + 三个按钮）：nowrap + 按钮 flex:0 0 auto 是关键 ——
-   窄屏时让路径框缩略，而不是把按钮挤到下一行去（和 .dsh-bar 同一个思路）。
-   以前这里是一串内联的 gap/flex-wrap，散成六七行、把卡片撑到 180px 高。 */
+/* 第一行（跳到根 + 路径 + 三个按钮）：nowrap 与按钮 flex:0 0 auto 是关键 ——
+   窄屏时压缩路径框，而非把按钮挤到下一行（与 .dsh-bar 思路一致）。
+   此前这里是一组内联 gap/flex-wrap，分散为六七行，使卡片高度达到 180px。 */
 .fm-bar{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;min-width:0;margin-bottom:12px}
 .fm-bar select{flex:0 0 auto;max-width:190px}
 .fm-bar input{flex:1 1 200px;min-width:90px}
@@ -312,7 +312,7 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
 .fm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
 .fm-crumb{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:12px;min-height:22px}
 .fm-crumb .sep{color:var(--dim2);font-size:12px}
-/* 表内操作列按钮按项目的做法压一档，别把文件名那列挤掉 */
+/* 表内操作列按钮沿用项目既有做法压缩一档尺寸，避免挤压文件名列 */
 #fmBody .act{padding:0 7px}
 /* 编辑器与列表容器 */
 .fm-edit{width:100%;height:380px;resize:vertical;white-space:pre;overflow:auto}
@@ -320,16 +320,14 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
 @media (max-width:640px){
   .fm-bar select{max-width:118px}
   .fm-bar input{min-width:70px}
-  /* 面包屑窄屏横滚而不是折成三行；隐藏滚动条免得抢视线 */
+  /* 面包屑在窄屏横向滚动而非折成三行；隐藏滚动条以避免分散注意力 */
   .fm-crumb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .fm-crumb::-webkit-scrollbar{display:none}
   #fmBody .act{padding:0 6px;font-size:10px}
 }
-/* 白名单动作：按模块分组 + 一行一项的紧凑列表。
-   这里原先是一串带内联边框的小方框、30 个动作顺着排，在页面上拉出一条几千像素的长墙。
-   改成"组标题 + 单列行"后，整体高度大约减半，组与组之间有明确分界。 */
 /* 白名单动作：按模块分组，每组是一个可折叠的 <details>，默认只展开常用组。
-   这里原先是一串带内联边框的小方框、30 个动作顺着排，在页面上拉出一条两千多像素的长墙。 */
+   此前是一串带内联边框的小方框、30 个动作顺序排列，在页面上形成一条两千多像素的长列表。
+   改为「组标题 + 单列行」后，整体高度大约减半，组与组之间有明确分界。 */
 .agroup{margin-top:8px;border:1px solid var(--line-soft);border-radius:11px;background:var(--panel2);
   overflow:hidden}
 .agroup:first-of-type{margin-top:0}
@@ -358,8 +356,8 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
      user-select:none}
 
 /* ---------- 表单行与子视图容器 ---------- */
-/* 这两条原先在 HTML 里被使用，但样式表里从来没有定义过（孤儿类），
-   排版一直靠浏览器默认值撑着。这里给它们正式定义。 */
+/* 这两条在 HTML 中已被使用，但样式表中此前从未定义（孤儿类），
+   排版一直依赖浏览器默认值。此处补上正式定义。 */
 .field{display:block}
 .field>label{display:block;margin-bottom:5px;font-size:12px;color:var(--dim2)}
 .field>input{width:100%}
@@ -367,8 +365,8 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
 .subview{display:block}
 
 /* ---------- 间距工具类 ---------- */
-/* 界面上原本散着 100 多处内联的 margin（同一个 10px 写了十来遍）。
-   收敛成这几个类之后，间距节奏改一处就能全局生效。 */
+/* 界面原先分散着 100 多处内联 margin（同一个 10px 重复十余次）。
+   收敛为这几个类后，间距规则只需修改一处即可全局生效。 */
 .gap-xs{margin-top:8px}
 .gap-sm{margin-top:10px}
 .gap-md{margin-top:12px}
@@ -396,7 +394,7 @@ input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accen
 .hint{color:var(--dim2);font-size:12px}
 .empty{padding:16px;text-align:center;color:var(--dim2)}
 .kv{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 14px;font-size:12.5px}
-.kv.wide{grid-template-columns:minmax(150px,auto) minmax(0,1fr)}   /* sshd 那种长键名别挤成一团 */
+.kv.wide{grid-template-columns:minmax(150px,auto) minmax(0,1fr)}   /* 避免 sshd 这类长键名被压缩换行 */
 .kv .k{color:var(--dim2);overflow-wrap:anywhere}
 .kv .v{color:var(--text);overflow-wrap:anywhere;min-width:0;padding:0}
 @media (max-width:560px){.kv,.kv.wide{grid-template-columns:minmax(0,1fr)}}
@@ -463,10 +461,10 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 .toast.err .ico{color:var(--bad)}
 
 /* ---------- 询问框 ----------
-   替掉浏览器原生的 confirm / alert / prompt：原生弹窗的字体、圆角、配色都改不了，
-   和页面的语言完全是两回事，摆在这么个面板上很业余。这里用同一套 token 重做：
-   危险操作（删除、封 IP、重启）给红色确认键，输入类操作显示一个输入框。
-   同一个 #ask 承担三种角色，少一套 DOM 就少一处不同步。 */
+   替代浏览器原生的 confirm / alert / prompt：原生弹窗的字体、圆角、配色均无法定制，
+   与页面风格完全不一致，在专业面板中不合时宜。这里用同一套 token 重做：
+   危险操作（删除、封禁 IP、重启）使用红色确认键，输入类操作显示输入框。
+   同一个 #ask 承担三种角色，减少一套 DOM 即可少一处状态不同步。 */
 .ask{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
      padding:20px;background:rgba(10,22,42,.34);
      -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
@@ -501,7 +499,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 /* 服务表 / 容器表：名称与说明小一号，把宽度让给状态与操作 */
 #svcBody td:first-child,#dkBody td:first-child,
 #svcBody td.hint,#dkBody td.hint{font-size:11.5px}
-/* 失败单元除了置顶，行首再加一道红边：服务表很长，颜色比状态点更快被眼睛抓到 */
+/* 失败单元除置顶外，行首增加一道红色边线：服务表较长，颜色比状态圆点更容易被视觉捕捉 */
 #svcBody tr.row-bad>td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
 /* 状态标的完整信息气泡（手机按住 / 桌面悬停） */
 .tip{position:absolute;z-index:80;max-width:min(340px,86vw);padding:8px 11px;font-size:12px;
@@ -513,7 +511,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
    ============================================================================ */
 @media (max-width:900px){
   .shell{flex-direction:column}
-  /* 导航不再吸顶：手机上滚走比占着一条更划算；吸顶交给顶栏 */
+  /* 导航不再吸顶：手机端滚动时占用一行并不值得，吸顶需求交由顶栏承担 */
   .side{position:static;height:auto;max-height:none;flex:0 0 auto;width:100%;
         border-right:none;border-bottom:1px solid var(--line)}
   .side-brand{height:40px;padding:0 14px;font-size:14px;gap:6px;border-bottom:none}
@@ -521,7 +519,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   .side-nav{flex-direction:row;gap:2px;padding:0 10px 8px;overflow-x:auto;overflow-y:hidden;
             -webkit-overflow-scrolling:touch}
   /* 手机上导航变成顶部横向滚动条。压紧一点，让标签里尽量多露出几个；
-     真正放不下的靠「切视图时自动把激活项滚进视野」兜底（见 showView）。 */
+     真正放不下的依赖「切视图时自动把激活项滚进视野」作为降级处理（见 showView）。 */
   .side-nav button{width:auto;height:34px;padding:0 10px;font-size:12px;gap:6px;
                    border-radius:9px;flex:0 0 auto}
   .side-nav button .ico{width:15px;height:15px}
@@ -535,7 +533,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 
   .topbar{position:sticky;top:0;flex-wrap:wrap;height:auto;min-height:48px;padding:8px 12px;gap:8px}
   .crumbs b{font-size:14.5px}
-  .crumbs span{display:none}                 /* 主机名/系统在概览里已经有了，手机上省掉 */
+  .crumbs span{display:none}                 /* 主机名/系统已在概览中显示，手机端省略 */
   main{padding:12px 12px 40px}
   .panel{padding:14px}
   .panel>h2{margin-bottom:12px;padding-bottom:10px;font-size:13.5px}
@@ -557,7 +555,7 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   .ov-metrics{gap:6px}
   .ov-metrics span{padding:4px 9px;font-size:11.5px}
 
-  /* 表格不再靠横向拖动：允许换行 + 压紧，宽表也塞得进手机屏 */
+  /* 表格不再依赖横向拖动：允许换行并压缩内边距，宽表也可完整显示在手机屏幕内 */
   th,td{padding:5px 7px;font-size:12px;white-space:normal;word-break:break-word;height:auto;
         line-height:1.35}
   th{font-size:11.5px}
@@ -568,17 +566,17 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   pre{word-break:break-all}
   .panel>h2 .q,details.fold>summary .q{font-size:11.5px}
 
-  /* 行内写死宽度的输入框（webhook、时区那些）在窄屏上一律弹性化 */
+  /* 行内固定宽度的输入框（webhook、时区等）在窄屏上一律改为弹性宽度 */
   .row input,.row select,.row textarea{width:auto!important;min-width:0;flex:1 1 130px}
   .row .act{flex:0 0 auto}
   .toast{left:12px;right:12px;bottom:14px;transform:translateY(160%);max-width:none}
   .toast.show{transform:translateY(0)}
 }
-/* 手机上：保持横向表格（不做竖排卡片），字号与内边距压紧 —— 同样宽度能塞下更多内容，
-   尽量一行显示完；放不下的允许换行但绝不截断，滚动交给整页 */
+/* 手机上：保持横向表格（不做竖排卡片），压缩字号与内边距 —— 同样宽度可容纳更多内容，
+   尽量单行显示；放不下的允许换行但不截断，滚动交给整页 */
 @media (max-width:640px){
   .scroll{max-height:none!important;overflow-x:auto}
-  /* 表格：内容垂直居中，字号别压太狠（太挤反而难看） */
+  /* 表格：内容垂直居中，字号不宜过度压缩（过密反而影响可读性） */
   th,td{padding:6px 5px;font-size:11.5px;line-height:1.4;height:auto;white-space:normal;
         word-break:break-word;vertical-align:middle}
   th{font-size:11px;letter-spacing:0}
@@ -593,50 +591,50 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   .logline .t{flex:0 0 auto;font-size:10.5px}
   .logbox{padding:7px 9px;line-height:1.45}
   #auBody td:first-child{white-space:nowrap}
-  /* 审计表用小字（列表性质，字小才好扫） */
+  /* 审计表使用小字号（列表性质，小字号便于快速浏览） */
   #auBody,#auBody td{font-size:10px}
-  /* 表头不拆字；标识符（容器名/单元名）优先整词显示，实在放不下才断 */
+  /* 表头不拆字；标识符（容器名/单元名）优先整词显示，确实放不下时才断行 */
   thead th{white-space:nowrap}
   .mono,td.mono{word-break:normal;overflow-wrap:break-word}
-  /* 长命令/路径（备份恢复命令那种）允许断行，别把块挤变形 */
+  /* 长命令/路径（备份恢复命令等）允许断行，避免挤压块布局 */
   .hint,code,.mono{word-break:break-word}
   code{word-break:break-all}
   .logline .t{font-size:10px}
   details.fold>summary{font-size:12.5px;min-height:42px}
   .panel>h2{font-size:13px}
   .pill{font-size:11px;height:24px}
-  /* 别让固定宽高把文字挤住（.pill/.tag 内容都很短，不参与） */
+  /* 避免固定宽高压缩文字（.pill/.tag 内容较短，不参与该规则） */
   .hint,.stat .n,.ov-stat em,.crumbs b,.side-user span,.panel>h2,.ov-metrics span{
     white-space:normal;overflow:visible;text-overflow:clip;max-width:none}
   td,th,summary{height:auto}
   .scroll td>*{min-width:0}
   .row{gap:6px}
   input,select,textarea{min-width:0;font-size:11.5px}
-  /* 数字列（右对齐的那些）：窄屏上别让 500.0 MB 折成两行。
+  /* 数字列（右对齐）：窄屏下避免 500.0 MB 折成两行。
      实测列宽约 53px、单行内容需要 43px 再加 padding，正好卡在临界，所以：
      ① nowrap ② 字号压到 10.5px ③ 左右 padding 收到 4px。 */
   td.num,th.num{white-space:nowrap}
   td.num,th.num{padding-left:4px;padding-right:4px}
-  /* 按钮：手机上手指点，别做太小；字号压小但高度给够（28 → 34px） */
-  /* 含按钮的列不许把按钮竖着堆；说明列限宽，把宽度让给单元名与操作 */
+  /* 按钮：手机端为手指点击场景，不应过小；字号压缩但保证高度（28 → 34px） */
+  /* 含按钮的列不允许按钮纵向堆叠；说明列限宽，把宽度让给单元名与操作列 */
   .scroll td:has(button){white-space:nowrap}
   .scroll td:has(button) .act{margin-left:3px}
   #svcBody td:nth-child(3),#dkBody td:nth-child(3){max-width:30vw}
   button.act{font-size:11.5px;padding:0 10px;height:34px;white-space:nowrap}
   button.act.mini,button.mini{font-size:10px;padding:0 8px;height:30px}
   button.act .ico{width:13px;height:13px}
-  /* 服务 / 容器 表里的操作列有 3 个按钮，吃掉整表近四成宽度，把「说明」挤到只剩 60 多 px
-     （OpenBSD / Secure / Shell / server 逐词换行）。这里把表内按钮的横向占地压下来，
-     并给说明列一个最小宽度 —— 空间从按钮那边匀过去。 */
+  /* 服务 / 容器表的操作列有 3 个按钮，占用整表近四成宽度，使「说明」列仅剩 60 多 px
+     （OpenBSD / Secure / Shell / server 逐词换行）。这里压缩表内按钮的横向占用，
+     并为说明列设定最小宽度 —— 宽度由按钮列让渡给说明列。 */
   #svcBody .act,#dkBody .act{padding:0 6px;font-size:10px}
   #svcBody .act.mini,#dkBody .act.mini{padding:0 5px}
-  /* 说明列保底 120px（英文描述才不至逐词换行）。若表因此略宽于容器，交给 .scroll 横向滚 ——
-     宁可轻微滑一下，也不要字被压成一列。 */
+  /* 说明列最小宽度 120px（避免英文描述逐词换行）。若表格因此略宽于容器，交由 .scroll 横向滚动 ——
+     允许轻微横向滚动，优于文字被压缩成逐列换行。 */
   #svcBody td:nth-child(3),#dkBody td:nth-child(3){max-width:42vw;min-width:120px}
-  /* 进程表同理：8 列里「操作」吃掉 129px，把「命令」挤到只剩 52px —— 连 python3 都要折行。
+  /* 进程表同理：8 列中「操作」占用 129px，使「命令」列仅剩 52px —— 连 python3 都会折行。
      压紧表内按钮、给命令列保底、操作列不许断成两行。 */
   #prBody .act{padding:0 6px;font-size:10px}
-  /* 「运行」列（5 分 / 2 小时）保持一行；「命令」列给个够用的下限 */
+  /* 「运行」列（5 分 / 2 小时）保持一行；「命令」列设置足够的下限宽度 */
   #prBody td:nth-child(6){min-width:50px;white-space:nowrap}
   #prBody td:nth-child(7){min-width:72px}
   #prBody td:nth-child(8){white-space:nowrap}
@@ -646,8 +644,8 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
   .side-user span{max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .crumbs b{font-size:14px}
   .kv .v{text-align:left}
-  /* 手机再压一档字号：这一档（≤560px）是真正生效的那条 ——「说明」列在这么窄的屏上
-     最容易逐字换行（OpenBSD / Secure / Shell / server），字号是唯一还能榨的空间。
+  /* 手机端再压缩一档字号：该档位（≤560px）是实际生效的规则 ——「说明」列在如此窄的屏幕上
+     最容易逐字换行（OpenBSD / Secure / Shell / server），字号是唯一可继续压缩的维度。
      压到 10px，同时保证表格不横向溢出。 */
   th,td{padding:5px 4px;font-size:10px;line-height:1.35}
   th{font-size:9.5px}
