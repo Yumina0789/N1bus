@@ -280,10 +280,13 @@ ACTIONS = {
                    "argv": lambda p: ["apt-get", "update"], "timeout": 300},
     # 模块动作（ADR 0012 / docs/modules.md §6）：argv 全由本体拼死，路径来自
     # /opt/n1bus/modules/<id>/，模块**不提供**任何要执行的字符串。
+    # `--force-recreate`：装与改配置都是「让容器按新参数重来」的语义，而 compose 只在
+    # 它自己认为配置变了时才重建容器 —— 环境变量来自 .env，它未必每次都认得出变化。
+    # 重建会清掉容器、重新读 .env 与新挂载，代价是该模块短暂中断（秒级）。
     "module.install": {"label": "安装模块（起容器）",
-                       "desc": "docker compose -p n1bus-<id> up -d",
+                       "desc": "docker compose -p n1bus-<id> up -d --force-recreate",
                        "params": {"id": _val_module_id}, "danger": True,
-                       "argv": lambda p: _compose_argv(p["id"], "up", "-d"),
+                       "argv": lambda p: _compose_argv(p["id"], "up", "-d", "--force-recreate"),
                        "timeout": 300},
     "module.start": {"label": "启动模块容器",
                      "desc": "docker compose -p n1bus-<id> start",
