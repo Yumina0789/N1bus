@@ -378,7 +378,12 @@ table:has(#fmBody) td:last-child{width:1%}
 .aitem:first-child{margin-top:0}
 .aitem .alabel{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .aitem .alabel b{font-weight:600;font-size:13px}
-.aitem .adesc{display:block;font-size:11.5px;margin-top:2px;overflow-wrap:anywhere;white-space:normal}
+/* 说明必须独占一行（动作名一行、动作 ID + 描述一行）。
+   原文写的是 display:block + margin-top，但它在 display:flex 的 .alabel 里 ——
+   flex 会忽略子项的 display，于是说明紧贴在动作名右边连成一句
+   （「清理 apt 下载缓存 clean.apt_cache · apt-get clean」），扫视时两层分不开。
+   flex:1 1 100% 才真正把它压到下一行。 */
+.aitem .adesc{flex:1 1 100%;display:block;font-size:11.5px;margin-top:2px;overflow-wrap:anywhere;white-space:normal}
 .aitem .aparams{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
 .aitem .aparams input{min-width:132px;max-width:190px}
 @media (max-width:760px){

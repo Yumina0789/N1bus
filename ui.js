@@ -1852,8 +1852,10 @@ async function loadActions(){
     const iy = ORDER.indexOf(ORDER.find(k => GROUP_LABELS[k] === y) || "other");
     return ix - iy;
   });
-  // 默认展开的组：本机日常动作都在其中，其余折叠 —— 一屏可看全 13 个模块名
-  const OPEN_BY_DEFAULT = new Set(["清理", "Docker", "systemd 服务"]);
+  // 分组的展开状态：**一律默认收起**，与页面里其它折叠块保持一致。
+  // 原先默认展开「清理 / Docker / systemd 服务」三个组，理由是本机日常动作在其中；
+  // 但整页一打开就是三组几十条摊在那里，反而找不到想要的模块 —— 而模块名一行就列全了。
+  const OPEN_BY_DEFAULT = new Set();
   document.getElementById("acList").innerHTML = keys.map(k => `
     <details class="agroup"${OPEN_BY_DEFAULT.has(k) ? " open" : ""}>
       <summary>${esc(k)}<span class="cnt">${groups.get(k).length} 个动作</span></summary>
