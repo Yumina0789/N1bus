@@ -661,13 +661,18 @@ async function loadImages(){
        + (imgs.filter(dangling).length ? " · 无标签 " + imgs.filter(dangling).length + " 个" : ""))
     : "无";
   patchRows(document.getElementById("dkImages"), imgs, i => i.id, i => [
-    {c: "mono", h: esc(i.repo)},
-    {c: "mono", h: dangling(i) ? "—" : esc(i.tag)},
-    {c: "mono hint", h: esc(i.id)},
+    {c: "mono cell-sub", h: esc(i.repo)},
+    {c: "mono cell-sub", h: dangling(i) ? "—" : esc(i.tag)},
+    {c: "mono cell-mini", h: esc(i.id)},
     {c: "num", h: esc(i.size)},
-    {c: "hint", h: esc(i.created)},
+    {c: "cell-mini", h: esc(i.created)},
     {h: dangling(i) ? dot("warn", "无标签，可清理") : dot("mute", "有标签")},
-  ], null, '<tr><td colspan="6" class="empty">没有镜像</td></tr>');
+    // 用镜像 ID 而不是 repo:tag —— ID 唯一，而同一个 ID 可能挂着好几个标签；
+    // 按标签删只会先摘掉那个标签、镜像本体还在，用户会以为「没删掉」。
+    {c: "num", h:
+      `<button class="act danger mini" title="删除这个镜像（仍被容器引用时 docker 会拒绝）"
+        onclick="runAction('docker.rmi',{image:'${esc(i.id)}'})">删除</button>`},
+  ], null, '<tr><td colspan="7" class="empty">没有镜像</td></tr>');
 }
 
 /* --- 安全 ------------------------------------------------------------- */

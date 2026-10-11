@@ -24,6 +24,19 @@ def _val_name(v):
     return v
 
 
+# 镜像引用比容器名宽：仓库可以带斜杠（library/nginx），标签与摘要用 : 和 @ 分隔，
+# 而 NAME_RE 只认 docker 的容器 / 单元名那套字符集。单独放一个校验器，仍然卡死：
+# 字母数字开头、字符集限定在这几个、长度 200 —— `docker rmi` 的参数由它把门。
+IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,199}$")
+
+
+def _val_image(v):
+    v = (v or "").strip()
+    if not IMAGE_RE.match(v):
+        raise ValueError("镜像引用不合法")
+    return v
+
+
 def _val_module_id(v):
     """模块 id：格式合法，且该模块确实已安装。
 
@@ -186,6 +199,12 @@ ACTIONS = {
     "docker.prune_images": {"label": "清理无标签镜像", "desc": "docker image prune -f",
                             "params": {}, "danger": False,
                             "argv": lambda p: ["docker", "image", "prune", "-f"], "timeout": 120},
+    # 刻意**不带 -f**：镜像还被容器引用时让 docker 自己拒绝 —— 它的报错里会写明是哪个
+    # 容器在用。强制删除会把那个容器变成一副空壳（镜像层没了，进程还在），那不是
+    # 「清理」，是事故。要删就先停掉引用它的容器。
+    "docker.rmi": {"label": "删除镜像", "desc": "docker rmi <镜像>（被容器引用时会被 docker 拒绝）",
+                   "params": {"image": _val_image}, "danger": True,
+                   "argv": lambda p: ["docker", "rmi", p["image"]], "timeout": 120},
     "process.term": {"label": "结束进程（TERM）", "desc": "kill -TERM <pid>",
                      "params": {"pid": _val_pid}, "danger": True,
                      "argv": lambda p: ["kill", "-TERM", p["pid"]]},
