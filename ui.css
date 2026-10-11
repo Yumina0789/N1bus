@@ -1,0 +1,663 @@
+/* ============================================================================
+   N1bus 皮肤 v2 —— 白蓝 · 细磨砂（二次元清爽风，2026-10 定稿）
+   规则：只重定义旧类名的视觉，不发明新结构 —— 160 处 id 与全部 JS 不动。
+   ============================================================================ */
+/* ============================================================================
+   折叠块（details.fold）默认态准则
+   ----------------------------------------------------------------------------
+   判据是「进这个页面的人，第一眼需不需要它」：
+
+   · 默认展开 —— 属于"当前状态快照"、内容短（键值表或几行统计）、看着它才有用的：
+       概览：磁盘明细 / 进程与服务 / 登录失败来源
+       安全：当前防护 / 失败来源排行 / 被猜用户名
+       系统：系统清理 / 备份与恢复 / 文件浏览 / 网络 / 开机自启 / 系统设置 / 磁盘与挂载
+       设置：修改密码
+   · 默认折叠 —— 需要主动查看的明细、日志、原始输出，或内容在持续变化的：
+       运行页全部（服务日志、容器日志、进程、连接）、
+       安全页的登录明细与 SSH / 防火墙原始输出、日志页全部、
+       白名单动作（自成一组可折叠）、设置页其余
+
+   为什么运行页的日志一律折叠：内容每次轮询都在变，展开会让整页跟着跳。
+
+   新增折叠块时照这条判据决定；要改判据就改这一处注释，别让默认态散落到各处。
+   ============================================================================ */
+:root{
+  --pri:#2b7fff;--pri-hi:#5ac8ff;
+  --bg:#f1f6ff;--bg2:#e8f2ff;
+  --panel:rgba(255,255,255,.74);--panel2:rgba(255,255,255,.52);--card:#fff;
+  --line:rgba(126,175,255,.26);--line-soft:rgba(126,175,255,.15);
+  --text:#152238;--dim:#5f7391;--dim2:#8b9ab1;
+  --accent:#2b7fff;--accent2:#5ac8ff;--accent-weak:rgba(43,127,255,.11);--on-accent:#fff;
+  --ok:#16b364;--warn:#f79009;--bad:#f04438;
+  --r:14px;--gap:12px;--sidebar:rgba(255,255,255,.62);--sidebar-active:transparent;
+  --blur:blur(10px) saturate(140%);--glasshead:rgba(255,255,255,.70);
+  --shadow:0 6px 22px rgba(43,127,255,.09),0 1px 2px rgba(16,42,90,.04);
+  --wm1:rgba(150,205,255,.55);--wm2:rgba(185,228,255,.42);--wm3:rgba(126,190,255,.40);
+  --track:rgba(126,175,255,.20);
+  --sbthumb:rgba(43,127,255,.22);--sbthumb-hover:rgba(43,127,255,.45);
+}
+:root[data-theme=dark]{
+  --bg:#080e1a;--bg2:#0b1526;
+  --panel:rgba(20,31,52,.66);--panel2:rgba(24,36,60,.48);--card:#141f34;
+  --line:rgba(120,170,255,.20);--line-soft:rgba(120,170,255,.10);
+  --text:#e7efff;--dim:#9fb2cd;--dim2:#7286a3;
+  --accent:#5aa9ff;--accent2:#7ee0ff;--accent-weak:rgba(90,169,255,.14);--on-accent:#fff;
+  --ok:#3ddc84;--warn:#ffc14d;--bad:#ff6b6b;
+  --sidebar:rgba(16,26,45,.68);--glasshead:rgba(12,20,36,.72);
+  --shadow:0 8px 26px rgba(0,0,0,.38);
+  --wm1:rgba(32,84,148,.52);--wm2:rgba(26,74,126,.42);--wm3:rgba(42,112,172,.38);
+  --track:rgba(120,170,255,.16);
+  --sbthumb:rgba(130,195,255,.24);--sbthumb-hover:rgba(130,195,255,.50);
+}
+*{box-sizing:border-box}
+*{scrollbar-width:thin;scrollbar-color:var(--sbthumb) transparent}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--sbthumb);border-radius:999px}
+::-webkit-scrollbar-thumb:hover{background:var(--sbthumb-hover)}
+::-webkit-scrollbar-corner{background:transparent}
+html,body{margin:0;padding:0}
+body{min-height:100vh;color:var(--text);font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+     font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
+     background-color:var(--bg);background-attachment:fixed;
+     background-image:
+       radial-gradient(58vw 42vh at 6% -8%, var(--wm1) 0%, rgba(255,255,255,0) 62%),
+       radial-gradient(52vw 38vh at 102% 2%, var(--wm2) 0%, rgba(255,255,255,0) 64%),
+       radial-gradient(56vw 44vh at 88% 106%, var(--wm3) 0%, rgba(255,255,255,0) 66%),
+       linear-gradient(162deg,var(--bg),var(--bg2))}
+a{color:var(--accent)}
+h1,h2,h3{letter-spacing:0}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+.ico{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.8;
+     stroke-linecap:round;stroke-linejoin:round}
+.hidden{display:none!important}
+.grow{flex:1 1 auto}
+
+/* 磨砂卡片基类：所有卡片与浮层都走这里，换皮只改这一处 */
+.glass{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+       -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--shadow)}
+nav.glass,.subnav.glass{background:var(--glasshead)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  /* 关掉硬件加速的远程桌面上看不出磨砂，退回半透明白，别糊字 */
+  .glass,.panel,details.fold{background:rgba(255,255,255,.93)}
+  :root[data-theme=dark] .glass,:root[data-theme=dark] .panel,
+  :root[data-theme=dark] details.fold{background:rgba(16,26,44,.94)}
+}
+
+/* ---------- 骨架：左窄侧栏 + 顶栏 + 标签条 ---------- */
+.shell{display:flex;gap:0;max-width:none;margin:0;padding:0;min-height:100vh}
+.side{position:sticky;top:0;flex:0 0 190px;height:100vh;max-height:100vh;gap:0;padding:0;
+      border:none;border-right:1px solid var(--line);border-radius:0;background:var(--sidebar);
+      -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:none;
+      display:flex;flex-direction:column}
+.side-brand{display:flex;align-items:center;gap:9px;height:56px;padding:0 15px;font-size:15px;
+            font-weight:650;border-bottom:1px solid var(--line-soft);background:none}
+.side-brand h1{margin:0;font-size:15px}
+.side-brand small{font-weight:400;color:var(--dim2);font-size:11px;max-width:124px;overflow:hidden;
+                  text-overflow:ellipsis;white-space:nowrap}
+.side-nav{flex:1 1 auto;padding:10px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;
+          margin:0;background:none}
+.side-nav button{position:relative;display:flex;align-items:center;gap:10px;width:100%;height:38px;
+                 padding:0 11px;border:none;border-radius:11px;background:none;color:var(--dim);
+                 font:inherit;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;
+                 transition:background .15s,color .15s,box-shadow .15s}
+.side-nav button .ico{width:16px;height:16px;color:currentColor;opacity:.9}
+.side-nav button:hover{background:var(--accent-weak);color:var(--text)}
+.side-nav button.active{background:linear-gradient(135deg,#3b8cff,#5ad2ff);color:#fff;font-weight:600;
+                        box-shadow:0 6px 16px rgba(43,127,255,.28)}
+.side-nav button.active .ico{opacity:1}
+.side-foot{margin-top:auto;padding:10px;gap:8px;border-top:1px solid var(--line-soft);background:none}
+.side-user{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);padding:0 3px}
+.side-user span{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+                white-space:nowrap}
+.side-user span .ico{display:none}
+.side-user>.ico{flex:0 0 auto}
+.side-acts{display:flex;gap:6px}
+.side-acts .act{flex:1 1 0;min-width:0;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 8px}
+.side-acts .act .ico{flex:0 0 auto}
+
+/* ---------- 内容区 ---------- */
+.content{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:16;display:flex;align-items:center;gap:10px;height:56px;
+        margin:0;padding:0 18px;border:none;border-bottom:1px solid var(--line);border-radius:0;
+        background:var(--glasshead);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+        flex-wrap:nowrap;overflow:hidden}
+.crumbs{display:flex;align-items:baseline;gap:9px;min-width:0}
+.crumbs b{font-size:15.5px;font-weight:650}
+.crumbs span{color:var(--dim2);font-size:12px}
+.hmeta{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;border:none;padding:0}
+main{flex:1 1 auto;max-width:none;margin:0;padding:18px 18px 48px}
+
+/* 二级导航（运行页内） */
+.subnav{display:flex;gap:5px;padding:5px;margin-bottom:var(--gap);overflow-x:auto}
+.subnav button{display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid transparent;
+               border-radius:10px;color:var(--dim);padding:6px 12px;font:inherit;font-size:12.5px;
+               cursor:pointer;white-space:nowrap;transition:.15s}
+.subnav button:hover{color:var(--text);background:var(--accent-weak)}
+.subnav button.active{color:#fff;font-weight:600;background:linear-gradient(135deg,#3b8cff,#5ad2ff);
+                      box-shadow:0 5px 14px rgba(43,127,255,.26)}
+.subnav button .ico{width:15px;height:15px}
+
+/* ---------- 卡片 / 面板 ---------- */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+       -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+       padding:16px 18px;margin-bottom:var(--gap)}
+.panel>h2{margin:0 0 14px;padding:0 0 12px;font-size:14px;font-weight:650;display:flex;align-items:center;
+          gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--line-soft);background:none}
+.panel>h2::before{content:none}
+.panel>h2 .ico{color:var(--accent);display:inline-block}
+.panel>h2 .q{font-weight:400;color:var(--dim2);font-size:12px}
+.panel>h2 .end{margin-left:auto;font-weight:400;font-size:12px;color:var(--dim)}
+.grid{display:grid;gap:var(--gap)}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media (max-width:900px){.g4{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:520px){.g4{grid-template-columns:1fr}}
+
+/* 统计磁贴 */
+.stat{background:var(--accent-weak);border:1px solid var(--line-soft);border-radius:11px;
+      padding:13px 14px;display:flex;flex-direction:column;gap:3px;min-height:84px}
+.stat .k{color:var(--dim2);font-size:12px;display:flex;align-items:center;gap:6px}
+.stat .k .ico{width:13px;height:13px;color:var(--accent)}
+.stat .v{font-size:21px;font-weight:650;line-height:1.25}
+.stat .n{color:var(--dim2);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat .bar{margin-top:auto}
+.bad-v{color:var(--bad)}.warn-v{color:var(--warn)}
+
+/* 进度条 */
+.bar{height:6px;border-radius:999px;background:var(--track);overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent2),var(--accent));
+       transition:width .4s}
+.bar.warn>i{background:linear-gradient(90deg,#fbbf24,var(--warn))}
+.bar.bad>i{background:linear-gradient(90deg,#fb7185,var(--bad))}
+/* 磁盘用量：挂载点 / 条形 / 数值 三列对齐，条形把剩余宽度吃掉 */
+.disk-use{margin-top:10px;display:flex;flex-direction:column;gap:9px}
+.du-row{display:grid;grid-template-columns:118px minmax(70px,1fr) auto;
+        align-items:center;gap:12px;font-size:12.5px}
+.du-mount{color:var(--text);overflow-wrap:anywhere}
+.du-num{color:var(--dim2);white-space:nowrap}
+@media (max-width:560px){
+  .du-row{grid-template-columns:1fr;gap:3px}
+  .du-num{white-space:normal}
+}
+
+/* ---------- 折叠块 = 卡片 ---------- */
+details.fold{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+             box-shadow:var(--shadow);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+             margin-bottom:var(--gap);overflow:hidden}
+details.fold>summary{list-style:none;min-height:48px;padding:0 18px;font-size:13.5px;font-weight:600;
+                     display:flex;align-items:center;gap:9px;flex-wrap:wrap;cursor:pointer;transition:background .15s}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::after{content:"›";margin-left:auto;color:var(--dim2);font-size:17px;line-height:1;
+                            transition:transform .2s}
+details.fold[open]>summary::after{transform:rotate(90deg)}
+details.fold>summary:hover{background:var(--accent-weak)}
+details.fold>summary .ico{color:var(--accent);width:16px;height:16px}
+details.fold>summary .q{font-weight:400;color:var(--dim2);font-size:12px}
+/* 收起时只留标题：说明文字由 JS 直接移除，这里兜底 */
+details.fold:not([open])>summary .q{display:none}
+details.fold>summary .end{margin-left:auto;font-weight:400;color:var(--dim);font-size:12px}
+details.fold>summary .end+.end{margin-left:8px}
+details.fold .foldbody{padding:4px 18px 16px;border-top:1px solid var(--line-soft)}
+details.fold .foldbody>h2{font-size:13px;font-weight:650;margin:14px 0 8px;display:flex;align-items:center;
+                          gap:8px;flex-wrap:wrap}
+details.fold .foldbody>h2 .ico{color:var(--accent);width:15px;height:15px}
+details.fold .foldbody>h2 .q{font-weight:400;color:var(--dim2);font-size:12px}
+details.fold .foldbody>h2 .end{margin-left:auto;font-weight:400;color:var(--dim);font-size:12px}
+details.fold .foldbody>.scroll:first-child,details.fold .foldbody>.kv:first-child{margin-top:10px}
+details.fold .foldbody>p.hint,details.fold .foldbody>div.hint{margin-top:8px}
+
+/* ---------- 表格 ---------- */
+/* 高度取「表头 32 + 14 行 × 28 + 边框 2」，滚动时不会把最后一行切成半截 */
+.scroll{border:1px solid var(--line);border-radius:11px;background:var(--panel2);overflow:auto;max-height:426px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:0 12px;border-bottom:1px solid var(--line-soft);white-space:nowrap;
+      height:28px;line-height:1.4}
+th{height:32px;color:var(--dim2);font-weight:500;font-size:12px;background:var(--panel);
+   position:sticky;top:0;-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);z-index:1}
+/* 表头（栏目标题）一律居中，别被 .num 推到右边；单元格内容仍按各自对齐 */
+thead th,thead th.num{text-align:center}
+tbody tr:hover{background:var(--accent-weak)}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right}
+
+/* ---------- 控件 ---------- */
+button.act{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:10px;
+  border:1px solid transparent;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  white-space:nowrap;
+  color:var(--on-accent);background:linear-gradient(135deg,#3b8cff,#5ad2ff);
+  box-shadow:0 4px 14px rgba(43,127,255,.24);transition:.15s}
+button.act:hover{box-shadow:0 6px 18px rgba(43,127,255,.34)}
+button.act.ghost{background:var(--card);color:var(--dim);border-color:var(--line);font-weight:500;box-shadow:none}
+button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);background:var(--card)}
+button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
+button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
+/* Harness 页：一条细工具条 + 尽量大的 iframe。
+   这个页面是拿来干活的，不是拿来看说明的 —— 所以常驻文案全部去掉，
+   只在真出问题（取不到链接）时冒一行提示。
+   高度走 flex 撑满 main，不再用 100vh 硬减，窗口大小变了也不会错位。 */
+/* 高度交给 JS 按视口算（见 sizeDshFrame）。
+   别用 height:100% —— 手机端 N1bus 的 flex 链（.shell 是 column、高度靠
+   min-height 撑着）给不出「确定高度」，百分比会退化成 auto，iframe 就只剩
+   min-height 那一小块：实测手机上只有 340×360，DSH 界面当然严重变形。 */
+#sub-harness{display:flex;flex-direction:column}
+#sub-harness .dsh-panel{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;
+  margin-bottom:0;padding:12px 14px}
+/* 工具条：核心操作（启动 / 停止 / 重启）在左、辅助操作在右，样式沿用全局 .toolbar。
+   警告：这里**不能**留没有选择器的声明块。CSS 解析器遇到裸声明不会报错停下，
+   而是把它当作下一条规则的选择器继续拼，一直拼到 #dshFrame 的 `{` 为止 ——
+   于是 #dshFrame 的 border / border-radius / background 整条失效，iframe 回退到
+   浏览器默认的 `2px inset` 深色边框，界面上就是那一圈突兀的线。 */
+#dshFrame{flex:1 1 auto;min-height:360px;width:100%;border:1px solid var(--line);
+  border-radius:12px;background:var(--card)}
+/* 沉浸模式：把外围（侧边栏、顶栏）收起来，只留 Harness 这一张卡片铺满当前页面。
+   刻意不用浏览器的 Fullscreen API —— 那个要用户手势授权、还会真的把整个窗口
+   切走；这里只是"覆盖当前页面"，Esc 或工具条上的按钮就能原样回来。
+   用「隐藏外围 + 撑满」而不是 position:fixed 覆盖：后者会被祖先的
+   backdrop-filter/transform 之类的包含块影响，算不准铺到哪儿。 */
+body.dsh-focusing{overflow:hidden}
+/* 全屏时把外壳全部收掉。原来只隐藏侧栏与顶栏 —— 那时 Harness 是独立标签页，
+   没有子导航；现在它成了「扩展功能」下的子视图，那条 .subnav 会一直占着约 45px，
+   于是「全屏」并不全屏。 */
+body.dsh-focusing .side,
+body.dsh-focusing .topbar,
+body.dsh-focusing .subnav{display:none!important}
+/* 真正铺满：去掉 main 的外边距与卡片的边框/圆角/阴影。
+   工具条要留着（退出全屏的按钮在上面），只给它留一点内边距。 */
+body.dsh-focusing main{padding:0}
+body.dsh-focusing #sub-harness{height:100vh}
+body.dsh-focusing #sub-harness .dsh-panel{height:100%;margin:0;padding:8px 8px 0;
+  border:none;border-radius:0;box-shadow:none;background:none;
+  -webkit-backdrop-filter:none;backdrop-filter:none}
+body.dsh-focusing #dshFrame{border-radius:8px 8px 0 0}
+/* 预热态：让 iframe 在「看得见但透明」的状态下把前端初始化完。
+   为什么不能直接挂在 .hidden（display:none）里预热 —— 那样浏览器根本不真正加载它，
+   实测白挂 10 秒，用户点开还得从头来一遍。opacity:0 保留渲染帧（DSH 的初始化要用到），
+   z-index:-1 压到最底层、pointer-events:none 不挡点击，用户看不到也碰不到。 */
+#sub-harness.dsh-preload{display:block!important;position:fixed;inset:0;z-index:-1;
+  opacity:0;pointer-events:none}
+/* 窄屏：标题和状态让位，保证三个按钮留在同一行。
+   不这么做的话，工具栏一挤就会把「全屏」挤到第二行去。 */
+@media (max-width:640px){
+}
+/* 手机上让 DSH 自己按窄屏排（它自带响应式：左侧栏会收成一排图标）。
+   刻意**不**给 iframe 设死宽度让它横向拖 —— 手机上左右拖动本身就反直觉，
+   一屏看完才是手机该有的样子。 */
+
+button.act.warn{background:var(--card);color:var(--warn);border-color:var(--line);font-weight:500;box-shadow:none}
+button.act.warn:hover{color:#fff;background:var(--warn);border-color:var(--warn)}
+button.act:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+button.mini,button.act.mini{height:26px;padding:0 9px;font-size:12px;border-radius:8px;box-shadow:none}
+button.act .ico{width:14px;height:14px}
+input,select,textarea{background:var(--card);border:1px solid var(--line);color:var(--text);
+  height:32px;padding:0 10px;border-radius:10px;font:inherit;font-size:12.5px}
+textarea{height:auto;padding:8px 10px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(43,127,255,.5);
+  box-shadow:0 0 0 3px var(--accent-weak)}
+input[type=text],input[type=password]{min-width:170px}
+input[type=checkbox]{width:auto;min-width:0;height:auto;padding:0;margin:0;accent-color:var(--accent)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* ---------- 文件管理器 ---------- */
+/* 第一行（跳到根 + 路径 + 三个按钮）：nowrap + 按钮 flex:0 0 auto 是关键 ——
+   窄屏时让路径框缩略，而不是把按钮挤到下一行去（和 .dsh-bar 同一个思路）。
+   以前这里是一串内联的 gap/flex-wrap，散成六七行、把卡片撑到 180px 高。 */
+.fm-bar{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;min-width:0;margin-bottom:12px}
+.fm-bar select{flex:0 0 auto;max-width:190px}
+.fm-bar input{flex:1 1 200px;min-width:90px}
+.fm-bar button{flex:0 0 auto;white-space:nowrap}
+/* 第二行（新建/上传 + 右侧条目数）与面包屑。间距取 12px，和 .panel 里
+   其它块的节奏一致（概览页的块间距是 14px，这里元素更密，用 12px 不至于散）。 */
+.fm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.fm-crumb{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:12px;min-height:22px}
+.fm-crumb .sep{color:var(--dim2);font-size:12px}
+/* 表内操作列按钮按项目的做法压一档，别把文件名那列挤掉 */
+#fmBody .act{padding:0 7px}
+/* 编辑器与列表容器 */
+.fm-edit{width:100%;height:380px;resize:vertical;white-space:pre;overflow:auto}
+.fm-list{max-height:520px}
+@media (max-width:640px){
+  .fm-bar select{max-width:118px}
+  .fm-bar input{min-width:70px}
+  /* 面包屑窄屏横滚而不是折成三行；隐藏滚动条免得抢视线 */
+  .fm-crumb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .fm-crumb::-webkit-scrollbar{display:none}
+  #fmBody .act{padding:0 6px;font-size:10px}
+}
+/* 白名单动作：按模块分组 + 一行一项的紧凑列表。
+   这里原先是一串带内联边框的小方框、30 个动作顺着排，在页面上拉出一条几千像素的长墙。
+   改成"组标题 + 单列行"后，整体高度大约减半，组与组之间有明确分界。 */
+/* 白名单动作：按模块分组，每组是一个可折叠的 <details>，默认只展开常用组。
+   这里原先是一串带内联边框的小方框、30 个动作顺着排，在页面上拉出一条两千多像素的长墙。 */
+.agroup{margin-top:8px;border:1px solid var(--line-soft);border-radius:11px;background:var(--panel2);
+  overflow:hidden}
+.agroup:first-of-type{margin-top:0}
+.agroup>summary{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;
+  font-size:12.5px;font-weight:650;color:var(--text);list-style:none;user-select:none}
+.agroup>summary::-webkit-details-marker{display:none}
+.agroup>summary::after{content:"▸";margin-left:auto;color:var(--dim2);font-size:11px;transition:transform .18s}
+.agroup[open]>summary::after{transform:rotate(90deg)}
+.agroup>summary:hover{color:var(--accent)}
+.agroup>summary .cnt{color:var(--dim2);font-weight:400;font-size:11.5px}
+.aglist{padding:0 10px 10px}
+.aitem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;
+  padding:8px 10px;border:1px solid var(--line-soft);border-radius:9px;background:var(--card);
+  margin-top:6px}
+.aitem:first-child{margin-top:0}
+.aitem .alabel{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.aitem .alabel b{font-weight:600;font-size:13px}
+.aitem .adesc{display:block;font-size:11.5px;margin-top:2px;overflow-wrap:anywhere;white-space:normal}
+.aitem .aparams{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.aitem .aparams input{min-width:132px;max-width:190px}
+@media (max-width:760px){
+  .aitem{grid-template-columns:minmax(0,1fr)}
+  .aitem .aparams{justify-content:flex-start}
+}
+.chk{display:inline-flex;align-items:center;gap:6px;color:var(--dim);font-size:12.5px;cursor:pointer;
+     user-select:none}
+
+/* ---------- 表单行与子视图容器 ---------- */
+/* 这两条原先在 HTML 里被使用，但样式表里从来没有定义过（孤儿类），
+   排版一直靠浏览器默认值撑着。这里给它们正式定义。 */
+.field{display:block}
+.field>label{display:block;margin-bottom:5px;font-size:12px;color:var(--dim2)}
+.field>input{width:100%}
+/* 运行页三个子视图的容器：显隐由 .hidden 管，这里只补定义，方便以后统一加间距 */
+.subview{display:block}
+
+/* ---------- 间距工具类 ---------- */
+/* 界面上原本散着 100 多处内联的 margin（同一个 10px 写了十来遍）。
+   收敛成这几个类之后，间距节奏改一处就能全局生效。 */
+.gap-xs{margin-top:8px}
+.gap-sm{margin-top:10px}
+.gap-md{margin-top:12px}
+.gap-lg{margin-top:14px}
+.mb-sm{margin-bottom:10px}
+.h-210{max-height:210px}
+.h-260{max-height:260px}
+.h-320{max-height:320px}
+.w-80{width:80px}
+.w-190{width:190px}
+
+/* ---------- 小标签与说明 ---------- */
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:999px;
+      border:1px solid var(--line);background:var(--accent-weak);color:var(--dim);font-size:12px}
+.pill.ok{color:var(--ok);border-color:rgba(22,179,100,.30);background:rgba(22,179,100,.10)}
+.pill.bad{color:var(--bad);border-color:rgba(240,68,56,.30);background:rgba(240,68,56,.10)}
+.pill .ico{width:13px;height:13px}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;height:21px;border-radius:999px;
+     font-size:11.5px;font-weight:500;border:1px solid transparent;background:var(--accent-weak);color:var(--dim)}
+.tag.ok{color:var(--ok);background:rgba(22,179,100,.12);border-color:rgba(22,179,100,.22)}
+.tag.bad{color:var(--bad);background:rgba(240,68,56,.12);border-color:rgba(240,68,56,.22)}
+.tag.warn{color:var(--warn);background:rgba(247,144,9,.12);border-color:rgba(247,144,9,.22)}
+.tag.info{color:var(--accent);background:var(--accent-weak);border-color:var(--line)}
+.tag.mute{color:var(--dim);background:var(--panel2);border-color:var(--line-soft)}
+.hint{color:var(--dim2);font-size:12px}
+.empty{padding:16px;text-align:center;color:var(--dim2)}
+.kv{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 14px;font-size:12.5px}
+.kv.wide{grid-template-columns:minmax(150px,auto) minmax(0,1fr)}   /* sshd 那种长键名别挤成一团 */
+.kv .k{color:var(--dim2);overflow-wrap:anywhere}
+.kv .v{color:var(--text);overflow-wrap:anywhere;min-width:0;padding:0}
+@media (max-width:560px){.kv,.kv.wide{grid-template-columns:minmax(0,1fr)}}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
+    overflow:auto;font-size:12px;margin:0;max-height:340px;white-space:pre-wrap;word-break:break-all}
+.logbox{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:11px;
+        background:var(--panel2);padding:8px 10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.logline{display:flex;gap:8px;padding:1px 0;color:var(--text)}
+.logline .t{color:var(--dim2);flex:0 0 auto;white-space:nowrap}
+.logline .src{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logline.warn span:last-child{color:var(--warn)}
+.logline.ok span:last-child{color:var(--ok)}
+.flash{animation:flash .8s}
+@keyframes flash{from{background:rgba(43,127,255,.16)}to{background:transparent}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+::selection{background:var(--accent-weak)}
+
+/* ---------- 概览页 ---------- */
+.ov-wrap{display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:var(--gap);align-items:start}
+@media (max-width:1100px){.ov-wrap{grid-template-columns:minmax(0,1fr)}}
+.ov-main{min-width:0}
+.ov-side{min-width:0;display:flex;flex-direction:column;gap:var(--gap);
+         position:sticky;top:68px}
+@media (max-width:1100px){.ov-side{position:static}}
+.ov-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media (max-width:760px){.ov-stats{grid-template-columns:repeat(2,1fr)}}
+.ov-stat{display:flex;flex-direction:column;gap:3px;background:var(--accent-weak);
+         border:1px solid var(--line-soft);border-radius:11px;padding:13px 14px}
+.ov-stat .k{color:var(--dim2);font-size:12px}
+.ov-stat b{font-size:21px;font-weight:650;color:var(--text)}
+.ov-stat em{font-style:normal;color:var(--dim2);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap}
+.ov-rings{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media (max-width:820px){.ov-rings{grid-template-columns:repeat(2,1fr)}}
+.ring{position:relative;text-align:center;padding:6px 0 0}
+.ring svg{width:112px;height:112px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:9;stroke-linecap:round}
+.ring .rt{stroke:var(--track)}
+.ring .rv{stroke:var(--accent);transition:stroke-dashoffset .5s;
+          filter:drop-shadow(0 0 5px rgba(43,127,255,.35))}
+.ring .rv-t{position:absolute;left:0;right:0;top:6px;height:112px;display:flex;flex-direction:column;
+            align-items:center;justify-content:center;gap:2px}
+.ring .rv-t b{font-size:22px;font-weight:650;letter-spacing:-.4px}
+.ring .rv-t span{color:var(--dim2);font-size:11.5px}
+.ring>em{display:block;margin-top:8px;color:var(--dim2);font-size:11.5px;font-style:normal;
+         line-height:1.45}
+.ov-metrics{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.ov-metrics span{background:var(--accent-weak);border:1px solid var(--line-soft);color:var(--dim);
+                 border-radius:999px;padding:5px 11px;font-size:12px}
+.ov-metrics b{font-weight:600;color:var(--text)}
+.spark{width:100%;height:132px;display:block;overflow:visible}
+
+/* ---------- 登录 / 提示 ---------- */
+#login{position:fixed;inset:0;z-index:90;display:grid;place-items:center;
+       background:rgba(238,246,255,.70);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+:root[data-theme=dark] #login{background:rgba(6,14,24,.74)}
+#login .box{width:min(430px,92vw);padding:22px}
+#login code{font-size:11px;overflow-wrap:anywhere;color:var(--text)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,140%);z-index:95;
+       display:flex;align-items:center;gap:8px;padding:11px 17px;font-size:13px;transition:.25s;max-width:92vw}
+.toast.show{transform:translate(-50%,0)}
+.toast.err{color:var(--bad)}
+.toast .ico{color:var(--ok)}
+.toast.err .ico{color:var(--bad)}
+
+/* ---------- 询问框 ----------
+   替掉浏览器原生的 confirm / alert / prompt：原生弹窗的字体、圆角、配色都改不了，
+   和页面的语言完全是两回事，摆在这么个面板上很业余。这里用同一套 token 重做：
+   危险操作（删除、封 IP、重启）给红色确认键，输入类操作显示一个输入框。
+   同一个 #ask 承担三种角色，少一套 DOM 就少一处不同步。 */
+.ask{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+     padding:20px;background:rgba(10,22,42,.34);
+     -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+     opacity:0;pointer-events:none;transition:opacity .16s}
+.ask.show{opacity:1;pointer-events:auto}
+.ask-box{width:min(460px,100%);max-height:calc(100vh - 40px);overflow:auto;
+         padding:16px 18px;border-radius:var(--r);transform:translateY(8px);transition:transform .16s}
+.ask.show .ask-box{transform:none}
+.ask-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ask-head .ico{width:17px;height:17px;flex:0 0 auto;color:var(--accent)}
+.ask-head b{font-size:13.5px;font-weight:650;color:var(--text)}
+.ask.danger .ask-head .ico{color:var(--bad)}
+.ask-body{font-size:12.5px;line-height:1.65;color:var(--dim);
+          white-space:pre-wrap;overflow-wrap:anywhere}
+.ask-body b{color:var(--text);font-weight:600}
+#askInput{width:100%;margin-top:10px}
+.ask-acts{display:flex;gap:8px;align-items:center;margin-top:16px}
+.ask-acts .grow{flex:1 1 auto}
+.ask.danger #askOk{background:linear-gradient(135deg,#f04438,#ff7a70);
+                   box-shadow:0 4px 14px rgba(240,68,56,.26)}
+.ask.danger #askOk:hover{box-shadow:0 6px 18px rgba(240,68,56,.34)}
+
+/* 状态只用颜色表示：一个小圆点（19px 触摸区，方便长按）；文字在 data-full 里 */
+.dot-tag{display:inline-block;width:19px;height:19px;position:relative;vertical-align:middle}
+.dot-tag::before{content:"";position:absolute;left:4px;top:4px;width:11px;height:11px;
+                 border-radius:50%;background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
+.dot-tag.ok::before{background:var(--ok);box-shadow:0 0 0 3px rgba(22,179,100,.14)}
+.dot-tag.warn::before{background:var(--warn);box-shadow:0 0 0 3px rgba(247,144,9,.14)}
+.dot-tag.bad::before{background:var(--bad);box-shadow:0 0 0 3px rgba(240,68,56,.14)}
+.dot-tag.info::before{background:var(--accent);box-shadow:0 0 0 3px rgba(43,127,255,.14)}
+.dot-tag.mute::before{background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
+/* 服务表 / 容器表：名称与说明小一号，把宽度让给状态与操作 */
+#svcBody td:first-child,#dkBody td:first-child,
+#svcBody td.hint,#dkBody td.hint{font-size:11.5px}
+/* 失败单元除了置顶，行首再加一道红边：服务表很长，颜色比状态点更快被眼睛抓到 */
+#svcBody tr.row-bad>td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+/* 状态标的完整信息气泡（手机按住 / 桌面悬停） */
+.tip{position:absolute;z-index:80;max-width:min(340px,86vw);padding:8px 11px;font-size:12px;
+     line-height:1.5;border-radius:10px;box-shadow:var(--shadow);pointer-events:none;
+     white-space:normal;word-break:break-word}
+
+/* ============================================================================
+   窄屏（手机 / 平板竖屏）：导航压扁成一条、控件弹性化、圆环缩小
+   ============================================================================ */
+@media (max-width:900px){
+  .shell{flex-direction:column}
+  /* 导航不再吸顶：手机上滚走比占着一条更划算；吸顶交给顶栏 */
+  .side{position:static;height:auto;max-height:none;flex:0 0 auto;width:100%;
+        border-right:none;border-bottom:1px solid var(--line)}
+  .side-brand{height:40px;padding:0 14px;font-size:14px;gap:6px;border-bottom:none}
+  .side-brand small{font-size:11px;max-width:none}
+  .side-nav{flex-direction:row;gap:2px;padding:0 10px 8px;overflow-x:auto;overflow-y:hidden;
+            -webkit-overflow-scrolling:touch}
+  /* 手机上导航变成顶部横向滚动条。压紧一点，让标签里尽量多露出几个；
+     真正放不下的靠「切视图时自动把激活项滚进视野」兜底（见 showView）。 */
+  .side-nav button{width:auto;height:34px;padding:0 10px;font-size:12px;gap:6px;
+                   border-radius:9px;flex:0 0 auto}
+  .side-nav button .ico{width:15px;height:15px}
+  /* .side-foot 在桌面是块级堆叠（用户名一行、按钮一行）；手机上要压成一行 */
+  .side-foot{margin-top:0;padding:0 10px 8px;border-top:none;display:flex;flex-direction:row;
+             align-items:center;gap:8px}
+  
+  .side-user{flex:1 1 auto;min-width:0;padding:0}
+  .side-acts{flex:0 0 auto;gap:6px}
+  .side-acts .act{height:30px;padding:0 10px;font-size:12px;flex:0 0 auto;white-space:nowrap}
+
+  .topbar{position:sticky;top:0;flex-wrap:wrap;height:auto;min-height:48px;padding:8px 12px;gap:8px}
+  .crumbs b{font-size:14.5px}
+  .crumbs span{display:none}                 /* 主机名/系统在概览里已经有了，手机上省掉 */
+  main{padding:12px 12px 40px}
+  .panel{padding:14px}
+  .panel>h2{margin-bottom:12px;padding-bottom:10px;font-size:13.5px}
+  details.fold>summary{min-height:46px;padding:0 14px;font-size:13px}
+  details.fold .foldbody{padding:4px 14px 14px}
+
+  .ov-wrap{gap:10px}
+  .ov-side{position:static}
+  .ov-stats{grid-template-columns:repeat(2,1fr);gap:8px}
+  .ov-stat{padding:11px 12px}
+  .ov-stat b{font-size:19px}
+  .ov-rings{grid-template-columns:repeat(2,1fr);gap:8px}
+  .ring svg{width:84px;height:84px}
+  .ring .rv-t{top:6px;height:84px}
+  .ring .rv-t b{font-size:17px}
+  .ring .rv-t span{font-size:11px}
+  .ring>em{margin-top:6px;font-size:11px}
+  .spark{height:110px}
+  .ov-metrics{gap:6px}
+  .ov-metrics span{padding:4px 9px;font-size:11.5px}
+
+  /* 表格不再靠横向拖动：允许换行 + 压紧，宽表也塞得进手机屏 */
+  th,td{padding:5px 7px;font-size:12px;white-space:normal;word-break:break-word;height:auto;
+        line-height:1.35}
+  th{font-size:11.5px}
+  td.mono,th.mono,.mono{word-break:break-all}
+  .logbox{white-space:pre-wrap;word-break:break-all}
+  .logline{flex-wrap:wrap;gap:2px}
+  .logline .t{flex:0 0 100%}
+  pre{word-break:break-all}
+  .panel>h2 .q,details.fold>summary .q{font-size:11.5px}
+
+  /* 行内写死宽度的输入框（webhook、时区那些）在窄屏上一律弹性化 */
+  .row input,.row select,.row textarea{width:auto!important;min-width:0;flex:1 1 130px}
+  .row .act{flex:0 0 auto}
+  .toast{left:12px;right:12px;bottom:14px;transform:translateY(160%);max-width:none}
+  .toast.show{transform:translateY(0)}
+}
+/* 手机上：保持横向表格（不做竖排卡片），字号与内边距压紧 —— 同样宽度能塞下更多内容，
+   尽量一行显示完；放不下的允许换行但绝不截断，滚动交给整页 */
+@media (max-width:640px){
+  .scroll{max-height:none!important;overflow-x:auto}
+  /* 表格：内容垂直居中，字号别压太狠（太挤反而难看） */
+  th,td{padding:6px 5px;font-size:11.5px;line-height:1.4;height:auto;white-space:normal;
+        word-break:break-word;vertical-align:middle}
+  th{font-size:11px;letter-spacing:0}
+  .mono,td.mono,code{font-size:10px;word-break:break-all}
+  .tag{font-size:10px;padding:0 5px;height:auto;line-height:1.6}
+  .hint{font-size:10px}
+  .kv{font-size:11px;gap:5px 10px}
+  .kv .k{font-size:10.5px}
+  .logbox,pre{font-size:11px}
+  /* 时间与来源同一行（覆盖上面那条「时间独占一行」的老规则） */
+  .logline{padding:1px 0;line-height:1.45;flex-wrap:nowrap;gap:8px;align-items:center}
+  .logline .t{flex:0 0 auto;font-size:10.5px}
+  .logbox{padding:7px 9px;line-height:1.45}
+  #auBody td:first-child{white-space:nowrap}
+  /* 审计表用小字（列表性质，字小才好扫） */
+  #auBody,#auBody td{font-size:10px}
+  /* 表头不拆字；标识符（容器名/单元名）优先整词显示，实在放不下才断 */
+  thead th{white-space:nowrap}
+  .mono,td.mono{word-break:normal;overflow-wrap:break-word}
+  /* 长命令/路径（备份恢复命令那种）允许断行，别把块挤变形 */
+  .hint,code,.mono{word-break:break-word}
+  code{word-break:break-all}
+  .logline .t{font-size:10px}
+  details.fold>summary{font-size:12.5px;min-height:42px}
+  .panel>h2{font-size:13px}
+  .pill{font-size:11px;height:24px}
+  /* 别让固定宽高把文字挤住（.pill/.tag 内容都很短，不参与） */
+  .hint,.stat .n,.ov-stat em,.crumbs b,.side-user span,.panel>h2,.ov-metrics span{
+    white-space:normal;overflow:visible;text-overflow:clip;max-width:none}
+  td,th,summary{height:auto}
+  .scroll td>*{min-width:0}
+  .row{gap:6px}
+  input,select,textarea{min-width:0;font-size:11.5px}
+  /* 数字列（右对齐的那些）：窄屏上别让 500.0 MB 折成两行。
+     实测列宽约 53px、单行内容需要 43px 再加 padding，正好卡在临界，所以：
+     ① nowrap ② 字号压到 10.5px ③ 左右 padding 收到 4px。 */
+  td.num,th.num{white-space:nowrap}
+  td.num,th.num{padding-left:4px;padding-right:4px}
+  /* 按钮：手机上手指点，别做太小；字号压小但高度给够（28 → 34px） */
+  /* 含按钮的列不许把按钮竖着堆；说明列限宽，把宽度让给单元名与操作 */
+  .scroll td:has(button){white-space:nowrap}
+  .scroll td:has(button) .act{margin-left:3px}
+  #svcBody td:nth-child(3),#dkBody td:nth-child(3){max-width:30vw}
+  button.act{font-size:11.5px;padding:0 10px;height:34px;white-space:nowrap}
+  button.act.mini,button.mini{font-size:10px;padding:0 8px;height:30px}
+  button.act .ico{width:13px;height:13px}
+  /* 服务 / 容器 表里的操作列有 3 个按钮，吃掉整表近四成宽度，把「说明」挤到只剩 60 多 px
+     （OpenBSD / Secure / Shell / server 逐词换行）。这里把表内按钮的横向占地压下来，
+     并给说明列一个最小宽度 —— 空间从按钮那边匀过去。 */
+  #svcBody .act,#dkBody .act{padding:0 6px;font-size:10px}
+  #svcBody .act.mini,#dkBody .act.mini{padding:0 5px}
+  /* 说明列保底 120px（英文描述才不至逐词换行）。若表因此略宽于容器，交给 .scroll 横向滚 ——
+     宁可轻微滑一下，也不要字被压成一列。 */
+  #svcBody td:nth-child(3),#dkBody td:nth-child(3){max-width:42vw;min-width:120px}
+  /* 进程表同理：8 列里「操作」吃掉 129px，把「命令」挤到只剩 52px —— 连 python3 都要折行。
+     压紧表内按钮、给命令列保底、操作列不许断成两行。 */
+  #prBody .act{padding:0 6px;font-size:10px}
+  /* 「运行」列（5 分 / 2 小时）保持一行；「命令」列给个够用的下限 */
+  #prBody td:nth-child(6){min-width:50px;white-space:nowrap}
+  #prBody td:nth-child(7){min-width:72px}
+  #prBody td:nth-child(8){white-space:nowrap}
+}
+@media (max-width:560px){
+  main{padding:10px 10px 36px}
+  .side-user span{max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crumbs b{font-size:14px}
+  .kv .v{text-align:left}
+  /* 手机再压一档字号：这一档（≤560px）是真正生效的那条 ——「说明」列在这么窄的屏上
+     最容易逐字换行（OpenBSD / Secure / Shell / server），字号是唯一还能榨的空间。
+     压到 10px，同时保证表格不横向溢出。 */
+  th,td{padding:5px 4px;font-size:10px;line-height:1.35}
+  th{font-size:9.5px}
+  #svcBody td:first-child,#dkBody td:first-child,
+  #svcBody td.hint,#dkBody td.hint{font-size:10px}
+  button.act{font-size:11px;padding:0 9px}
+  button.act.mini,button.mini{font-size:10px;padding:0 7px}
+  .ring svg{width:76px;height:76px}
+  .ring .rv-t{height:76px}
+  .ring .rv-t b{font-size:15.5px}
+  .panel{padding:12px}
+  details.fold .foldbody{padding:4px 12px 12px}
+}

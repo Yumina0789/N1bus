@@ -92,7 +92,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> 取源码"
-for f in n1bus.py ui.html; do
+for f in n1bus.py ui.html ui.css ui.js; do
   if [ -f "$SCRIPT_DIR/$f" ]; then
     cp -f "$SCRIPT_DIR/$f" "$WORK/$f"
   else
@@ -105,7 +105,7 @@ done
 echo "==> 安装到 $PREFIX"
 mkdir -p "$PREFIX" "$DATA_DIR"
 chmod 700 "$DATA_DIR"
-for f in n1bus.py ui.html; do
+for f in n1bus.py ui.html ui.css ui.js; do
   # 留上一份：升级出问题能立刻回滚
   [ -f "$PREFIX/$f" ] && cp -f "$PREFIX/$f" "$PREFIX/$f.bak"
   install -m 0644 "$WORK/$f" "$PREFIX/$f"

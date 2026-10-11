@@ -52,6 +52,30 @@ from urllib.parse import urlparse, parse_qs
 VERSION = "1.0"
 HERE = Path(__file__).resolve().parent
 
+# --- 页面拼装 ----------------------------------------------------------------
+# ui.html 只是骨架，样式与脚本分别在 ui.css / ui.js 里。本体在**第一次要页面时**
+# 拼一次，之后走缓存 —— 以前是每次请求都读一遍 ui.html，拆成三个文件后拼装更贵，
+# 缓存算是顺带的改进。
+PAGE_CSS_SLOT = "/*{{N1BUS_CSS}}*/"
+PAGE_JS_SLOT = "/*{{N1BUS_JS}}*/"
+_PAGE = {"text": None}
+
+
+def build_page():
+    """把骨架与 ui.css / ui.js 拼成一份完整页面（幂等，只拼一次）。
+
+    某个分片文件缺失时就把对应槽位留空 —— 「只拆了一半」也能跑起来，
+    而不是整个面板 500。
+    """
+    if _PAGE["text"] is None:
+        html = (HERE / "ui.html").read_text(encoding="utf-8")
+        for slot, name in ((PAGE_CSS_SLOT, "ui.css"), (PAGE_JS_SLOT, "ui.js")):
+            part = HERE / name
+            html = html.replace(slot, part.read_text(encoding="utf-8").strip("\n")
+                                if part.is_file() else "")
+        _PAGE["text"] = html
+    return _PAGE["text"]
+
 # 真实文件系统才列进磁盘面板；overlay/tmpfs 那些是容器与内存的，列出来只会干扰
 REAL_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "jfs", "reiserfs", "vfat"}
 # 单元名与容器名的白名单形状：systemd 与 docker 都只认这套字符，先挡住注入
@@ -4072,8 +4096,7 @@ class Handler(BaseHTTPRequestHandler):
         _CACHE_LOCAL.fresh = q.get("fresh", ["0"])[0] in ("1", "true", "yes")
         _CACHE_LOCAL.last = (False, 0.0, 0.0)
         if u.path in ("/", "/index.html"):
-            return self._send(200, (HERE / "ui.html").read_text(encoding="utf-8"),
-                              "text/html; charset=utf-8")
+            return self._send(200, build_page(), "text/html; charset=utf-8")
         if u.path == "/api/meta":
             return self._send(200, {"version": VERSION, "mode": self.app["mode"],
                                     "real": self.app["probe"].real, "started": self.app["started"],

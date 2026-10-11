@@ -33,12 +33,19 @@ r = subprocess.run([sys.executable, "-m", "py_compile", str(ROOT / "n1bus.py")],
 ok(r.returncode == 0, "n1bus.py 能编译" + ("" if r.returncode == 0 else "：" + r.stderr[-400:]))
 
 html = (ROOT / "ui.html").read_text(encoding="utf-8")
-m = re.search(r"<script>(.*)</script>", html, re.S)
-ok(bool(m), "ui.html 里有 <script> 块")
+# 样式与脚本已拆到 ui.css / ui.js（ui.html 只是骨架 + 两个槽位）。
+# 老的单文件布局仍然认 —— 拆到一半也不会把自检搞红。
+js_path = ROOT / "ui.js"
+if js_path.is_file():
+    js = js_path.read_text(encoding="utf-8")
+    ok(True, "ui.js 存在（脚本已拆出）")
+else:
+    m = re.search(r"<script>(.*)</script>", html, re.S)
+    js = m.group(1) if m else ""
+    ok(bool(m), "ui.html 里有 <script> 块")
 
 print("== 界面自检 ==")
-if m:
-    js = m.group(1)
+if js:
     ids = set(re.findall(r'id="([A-Za-z0-9_-]+)"', html))
     used = set(re.findall(r'getElementById\("([A-Za-z0-9_-]+)"\)', js))
     ok(not (used - ids), "JS 用到的 id 都在 HTML 里：%s" % (sorted(used - ids) or "全部命中"))
