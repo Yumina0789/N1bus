@@ -514,8 +514,8 @@ function filterUnits(){
       {h: dot(st.c, st.t + "（" + u.active + (u.sub ? " / " + u.sub : "") + "）")},
       {c: "hint", s: "white-space:normal", h: esc(u.desc)},
       {c: "num", a: 'onclick="event.stopPropagation()"', h:
-        `<button class="act ghost mini" onclick="runAction('service.restart',{unit:'${esc(u.unit)}'})">重启</button>
-        <button class="act danger mini" onclick="runAction('service.stop',{unit:'${esc(u.unit)}'})">停止</button>
+        `<button class="act warn mini" onclick="runAction('service.restart',{unit:'${esc(u.unit)}'})">重启</button>
+        <button class="act warn mini" onclick="runAction('service.stop',{unit:'${esc(u.unit)}'})">停止</button>
         <button class="act ghost mini" onclick="runAction('service.start',{unit:'${esc(u.unit)}'})">启动</button>`},
     ];
   }, u => `onclick="openUnit('${esc(u.unit)}')" style="cursor:pointer"` +
@@ -539,11 +539,11 @@ async function openUnit(unit){
     ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v mono">${esc(v)}</div>`).join("");
   }
   document.getElementById("svcActions").innerHTML =
-    `<button class="act" onclick="runAction('service.restart',{unit:'${esc(unit)}'})">
+    `<button class="act warn" onclick="runAction('service.restart',{unit:'${esc(unit)}'})">
        <svg class="ico"><use href="#i-restart"/></svg>重启</button>
      <button class="act ghost" onclick="runAction('service.start',{unit:'${esc(unit)}'})">
        <svg class="ico"><use href="#i-play"/></svg>启动</button>
-     <button class="act danger" onclick="runAction('service.stop',{unit:'${esc(unit)}'})">
+     <button class="act warn" onclick="runAction('service.stop',{unit:'${esc(unit)}'})">
        <svg class="ico"><use href="#i-stop"/></svg>停止</button>
      <span class="hint">单元文件：${esc((j && j.fragment) || "–")}</span>`;
   const lg = await api("/api/service/logs?unit=" + encodeURIComponent(unit) + "&lines=200");
@@ -575,12 +575,12 @@ async function loadDocker(){
     {h: dot(dkState(c).c, dkState(c).t + "（" + (c.status || c.state || "") + "）")},
     {c: "hint", h: esc(c.image)},
     {c: "num", a: 'onclick="event.stopPropagation()"', h:
-      `<button class="act ghost mini"
+      `<button class="act warn mini"
          onclick="runAction('docker.restart',{name:'${esc(c.name)}'})">重启</button>
       ${c.running
-        ? `<button class="act danger mini"
+        ? `<button class="act warn mini"
              onclick="runAction('docker.stop',{name:'${esc(c.name)}'})">停止</button>`
-        : `<button class="act mini"
+        : `<button class="act ghost mini"
              onclick="runAction('docker.start',{name:'${esc(c.name)}'})">启动</button>`}`},
   ], c => `onclick="openContainer('${esc(c.name)}')" style="cursor:pointer"`,
      j.available ? '<tr><td colspan="4" class="empty">没有容器</td></tr>'
@@ -802,7 +802,7 @@ function renderPorts(a){
   if(need.length) blocks.push(
     '<div class="kv wide"><div class="k warn-v">待放行</div><div class="v">' +
     need.map(x => `${num(x.port)}/${esc(x.proto)}　${esc(x.process || "未知进程")} 在监听，但无法从外部访问
-      <button class="act mini" style="margin-left:8px"
+      <button class="act ghost mini" style="margin-left:8px"
         onclick="portAllowQuick('${esc(x.port)}','${esc(x.proto)}')">放行</button>`).join("<br>") +
     '</div></div>');
   const dk = (a.uncovered || []).filter(x => x.docker);
@@ -1097,7 +1097,9 @@ async function loadCleanup(){
       <td class="num ${i.reclaimable ? "warn-v" : "hint"}">${bytes(i.reclaimable)}</td>
       <td class="hint" style="white-space:normal">${esc(i.note || "")}</td>
       <td class="num">${i.action
-        ? `<button class="act ghost mini"
+        /* 只有真删东西的那两个（悬空镜像、30 天前的轮转日志）给红字；收缩日志与清缓存
+           只是回收空间，不丢「当前还在用」的东西。 */
+        ? `<button class="act ${i.action === "docker.prune_images" || i.action === "clean.old_gz_logs" ? "danger" : "ghost"} mini"
              onclick="runAction('${esc(i.action)}',{})">${esc(CLEAN_VERB[i.action] || "执行")}</button>`
         : "–"}</td></tr>`).join("") ||
     '<tr><td colspan="5" class="empty">无法获取清理数据</td></tr>';
@@ -1268,13 +1270,13 @@ async function loadFiles(path){
     const rootHit = FMROOTS.find(r => FMPATH === r || FMPATH.startsWith(r.replace(/\/+$/, "") + "/"));
     let html = "";
     if(rootHit){
-      html += `<button class="act ghost mini" onclick="loadFiles('${fmEscape(rootHit)}')">${esc(rootHit)}</button>`;
+      html += `<button class="act view mini" onclick="loadFiles('${fmEscape(rootHit)}')">${esc(rootHit)}</button>`;
       const rest = FMPATH.slice(rootHit.length).replace(/^\/+/, "");
       let acc = rootHit;
       for(const p of (rest ? rest.split("/") : [])){
         acc = acc.replace(/\/+$/, "") + "/" + p;
         html += `<span class="sep">/</span>` +
-          `<button class="act ghost mini" onclick="loadFiles('${fmEscape(acc)}')">${esc(p)}</button>`;
+          `<button class="act view mini" onclick="loadFiles('${fmEscape(acc)}')">${esc(p)}</button>`;
       }
     } else {
       html += `<span class="hint mono">${esc(FMPATH || "（未选择目录）")}</span>`;
@@ -1291,13 +1293,13 @@ async function loadFiles(path){
     const full = fmJoin(FMPATH, e.name);
     const q = fmEscape(full);
     const acts = e.dir
-      ? `<button class="act ghost mini" onclick="loadFiles('${q}')">打开</button>
+      ? `<button class="act view mini" onclick="loadFiles('${q}')">打开</button>
          <button class="act ghost mini" onclick="fmRename('${q}', true)">重命名</button>
-         <button class="act ghost mini" onclick="fmDelete('${q}', true)">删除</button>`
-      : `<button class="act ghost mini" onclick="fmEdit('${q}')">编辑</button>
+         <button class="act danger mini" onclick="fmDelete('${q}', true)">删除</button>`
+      : `<button class="act view mini" onclick="fmEdit('${q}')">编辑</button>
          <button class="act ghost mini" onclick="fmDownload('${q}')">下载</button>
          <button class="act ghost mini" onclick="fmRename('${q}', false)">重命名</button>
-         <button class="act ghost mini" onclick="fmDelete('${q}', false)">删除</button>`;
+         <button class="act danger mini" onclick="fmDelete('${q}', false)">删除</button>`;
     return `<tr>
       <td class="mono">${e.dir ? '<span class="tag info">目录</span> ' : ""}${esc(e.name)}${
         e.link ? ' <span class="tag mute">链接</span>' : ""}</td>
@@ -1778,7 +1780,7 @@ async function loadActions(){
           </div>
           <div class="aparams">
             ${(a.params || []).map(p => `<input type="text" id="p_${esc(a.name)}_${esc(p)}" placeholder="${esc(p)}">`).join("")}
-            <button class="act ${a.danger ? "danger" : ""} mini" onclick="runAction('${esc(a.name)}')">
+            <button class="act ${a.danger ? "danger" : "ghost"} mini" onclick="runAction('${esc(a.name)}')">
               <svg class="ico"><use href="#i-play"/></svg>执行</button>
           </div>
         </div>`).join("")}
@@ -2105,17 +2107,19 @@ function syncModuleViews(list){
       '<div class="toolbar">' +
       '<button class="act ghost" onclick="runAction(\'module.start\',{id:\'' + esc(mid) + '\'})">' +
       '<svg class="ico"><use href="#i-play"/></svg>启动</button>' +
-      '<button class="act ghost" onclick="runAction(\'module.stop\',{id:\'' + esc(mid) + '\'})">' +
+      '<button class="act warn" onclick="runAction(\'module.stop\',{id:\'' + esc(mid) + '\'})">' +
       '<svg class="ico"><use href="#i-stop"/></svg>停止</button>' +
-      '<button class="act" onclick="runAction(\'module.restart\',{id:\'' + esc(mid) + '\'})">' +
+      /* 重启与启动/停止不同级：它会打断正在跑的东西，用 warn 让风险自己露出来 */
+      '<button class="act warn" onclick="runAction(\'module.restart\',{id:\'' + esc(mid) + '\'})">' +
       '<svg class="ico"><use href="#i-restart"/></svg>重启</button>' +
       (dyn ? '<button class="act ghost mini" onclick="loadModuleEntry(\'' + esc(mid) + '\')">' +
              '<svg class="ico"><use href="#i-restart"/></svg>重新获取入口</button>' : "") +
       '<span class="grow"></span>' +
-      '<button class="act ghost mini" id="modFull-' + esc(mid) + '" title="铺满整页（Esc 退出）" ' +
+      /* 靠右这一段按「风险递增」排：查看类（无边框）→ 破坏性（红） */
+      '<button class="act view mini" id="modFull-' + esc(mid) + '" title="铺满整页（Esc 退出）" ' +
       'onclick="toggleModuleFocus(\'' + esc(mid) + '\')">' +
       '<svg class="ico"><use href="#i-expand"/></svg>全屏</button>' +
-      '<button class="act ghost mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
+      '<button class="act danger mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
       '<svg class="ico"><use href="#i-x-circle"/></svg>卸载</button>' +
       '</div>' +
       '<div class="hint" id="modHint-' + esc(mid) + '">' +
@@ -2140,8 +2144,8 @@ function paintModuleFocus(mid, on){
     ? '<svg class="ico"><use href="#i-collapse"/></svg>退出全屏'
     : '<svg class="ico"><use href="#i-expand"/></svg>全屏';
   btn.title = on ? "退出全屏（Esc）" : "铺满整页（Esc 退出）";
-  // 全屏时按钮变实心：它是这一刻唯一能把外壳变回来的控件，得让人一眼找到
-  btn.classList.toggle("ghost", !on);
+  // 平时它是「只读查看」的外观（无边框）；全屏时它成了唯一的出口，换成实心好找
+  btn.classList.toggle("view", !on);
 }
 
 /* 把模块页面铺满整页。
@@ -2154,6 +2158,9 @@ function toggleModuleFocus(mid, on){
   if(MODFOCUS) paintModuleFocus(MODFOCUS, false);   // 先把手上的那个收干净
   MODFOCUS = next ? mid : "";
   document.body.classList.toggle("mod-focusing", next);
+  // html 上也要挂一份：滚动条是挂在 html 上的，光禁 body 的溢出，页面照样能滚，
+  // 全屏时右侧留着滚动条、底下露出一条白边。
+  document.documentElement.classList.toggle("mod-focusing", next);
   if(next) paintModuleFocus(mid, true);
 }
 document.addEventListener("keydown", e => {
@@ -2283,7 +2290,7 @@ async function loadModules(forceStore){
         "</td><td class='mono'>" + esc((m.page && m.page.url) || "-") + "</td>" +
         "<td class='num'>" + updateBtn(m.id, up) +
         "<button class='act ghost mini' onclick=\"showView('ext','" + esc(m.id) +
-        "',true)\">打开</button> <button class='act ghost mini' onclick=\"uninstallModule('" +
+        "',true)\">打开</button> <button class='act danger mini' onclick=\"uninstallModule('" +
         esc(m.id) + "')\">卸载</button></td>";
       tb.appendChild(tr);
     }

@@ -107,10 +107,10 @@
       <div class="hmeta">
         <span class="pill" id="hPill"><svg class="ico"><use href="#i-pulse"/></svg>…</span>
       </div>
-      <button class="act ghost mini" onclick="runAction('panel.restart',{})"
+      <button class="act warn mini" onclick="runAction('panel.restart',{})"
               title="重启 N1bus 面板服务；连接会短暂中断，数秒后刷新本页即可">
         <svg class="ico"><use href="#i-restart"/></svg>重启面板</button>
-      <button class="act ghost mini" onclick="runAction('system.reboot',{})"
+      <button class="act danger mini" onclick="runAction('system.reboot',{})"
               title="重启整台托管机；会断开面板、SSH 与全部容器">
         <svg class="ico"><use href="#i-alert"/></svg>重启服务器</button>
       <button class="act ghost mini" onclick="refreshNow(this)"><svg class="ico"><use href="#i-refresh"/></svg>刷新</button>
@@ -276,7 +276,7 @@
           <option value="">全部</option><option value="active">只看 active</option>
           <option value="failed">只看 failed</option>
         </select>
-        <button class="act ghost" onclick="restartFailedUnits()">
+        <button class="act warn" onclick="restartFailedUnits()">
           <svg class="ico"><use href="#i-restart"/></svg>重启全部失败服务</button>
         <span class="hint" id="svcFailedHint"></span>
       </div>
@@ -300,9 +300,9 @@
       <h2><svg class="ico"><use href="#i-box"/></svg>Docker 容器
         <span class="end" id="dkMeta"></span></h2>
       <div class="row mb-sm">
-        <button class="act ghost" onclick="restartAllContainers()">
+        <button class="act warn" onclick="restartAllContainers()">
           <svg class="ico"><use href="#i-restart"/></svg>重启全部容器</button>
-        <button class="act" onclick="runAction('docker.prune_images',{})">
+        <button class="act danger" onclick="runAction('docker.prune_images',{})">
           <svg class="ico"><use href="#i-x-circle"/></svg>清理无标签镜像</button>
       </div>
       <div class="scroll"><table><thead><tr><th>容器</th><th>状态</th><th>镜像</th>
@@ -322,9 +322,9 @@
       <div class="mono hint" id="dkCmd" style="margin:0 0 14px;padding:7px 10px;border-radius:9px;
            background:var(--panel2);word-break:break-all;line-height:1.5"></div>
       <div class="row mb-sm">
-        <button class="act ghost mini" onclick="dkAction('docker.restart')">
+        <button class="act warn mini" onclick="dkAction('docker.restart')">
           <svg class="ico"><use href="#i-restart"/></svg>重启容器</button>
-        <button class="act danger mini" onclick="dkAction('docker.stop')">
+        <button class="act warn mini" onclick="dkAction('docker.stop')">
           <svg class="ico"><use href="#i-stop"/></svg>停止容器</button>
         <button class="act danger mini" onclick="dkAction('docker.rm')">
           <svg class="ico"><use href="#i-x-circle"/></svg>删除容器</button>
@@ -336,7 +336,7 @@
         <input id="dkLines" type="number" value="200" min="1" max="5000" title="--tail 行数"
                style="width:96px">
         <label class="chk"><input type="checkbox" id="dkTs">显示时间戳</label>
-        <button class="act" onclick="reloadDockerLogs()"><svg class="ico"><use href="#i-search"/></svg>应用过滤</button>
+        <button class="act ghost" onclick="reloadDockerLogs()"><svg class="ico"><use href="#i-search"/></svg>应用过滤</button>
       </div>
       <details class="fold gap-sm">
         <summary><svg class="ico"><use href="#i-file"/></svg>日志正文</summary>
@@ -455,7 +455,7 @@
                  onchange="defenderSet()">
           <span class="hint">次即永久封禁</span>
           <span class="grow"></span>
-          <button class="act mini" onclick="defenderRun()">立即执行一轮</button>
+          <button class="act danger mini" onclick="defenderRun()">立即执行一轮</button>
         </div>
         <div class="kv wide" id="seDefInfo"></div>
         <h2><svg class="ico"><use href="#i-ban"/></svg>本轮将封禁
@@ -545,7 +545,7 @@
           <input id="lgPath" type="text" placeholder="/var/log/auth.log" class="hidden" style="width:280px">
           <select id="lgUnit"><option value="">— 选单元 —</option></select>
           <select id="lgLines"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select>
-          <button class="act" onclick="loadLogs2()"><svg class="ico"><use href="#i-search"/></svg>读取</button>
+          <button class="act ghost" onclick="loadLogs2()"><svg class="ico"><use href="#i-search"/></svg>读取</button>
           <span class="hint" id="lgMeta"></span>
         </div>
         <div class="logbox" id="lgBox" style="max-height:380px"></div>
@@ -676,8 +676,8 @@
       <div class="fm-bar">
         <select id="fmRoot" onchange="fmGotoRoot(this.value)" title="跳转到允许管理的目录"></select>
         <input id="fmPath" class="mono" placeholder="绝对路径，回车前往" onkeydown="fmKey(event)">
-        <button class="act" onclick="fmGo()"><svg class="ico"><use href="#i-search"/></svg>前往</button>
-        <button class="act ghost" onclick="fmUp()">↑ 上一级</button>
+        <button class="act view" onclick="fmGo()"><svg class="ico"><use href="#i-search"/></svg>前往</button>
+        <button class="act view" onclick="fmUp()">↑ 上一级</button>
         <button class="act ghost" onclick="fmReload()"><svg class="ico"><use href="#i-refresh"/></svg>刷新</button>
       </div>
       <div class="fm-crumb" id="fmCrumb"></div>
@@ -702,7 +702,7 @@
           <span class="hint" id="fmEditInfo"></span>
           <span class="grow"></span>
           <button class="act" onclick="fmSave()"><svg class="ico"><use href="#i-check"/></svg>保存</button>
-          <button class="act ghost" onclick="fmCloseEditor()">关闭</button>
+          <button class="act view" onclick="fmCloseEditor()">关闭</button>
         </div>
         <textarea id="fmEditText" class="mono fm-edit" spellcheck="false"></textarea>
         <div class="hint gap-xs" id="fmEditHint"></div>
@@ -771,7 +771,7 @@
       <summary><svg class="ico"><use href="#i-logout"/></svg>会话</summary>
       <div class="foldbody">
         <div class="row">
-          <button class="act ghost" onclick="logoutAll()">
+          <button class="act danger" onclick="logoutAll()">
             <svg class="ico"><use href="#i-logout"/></svg>退出我的全部会话</button>
         </div>
         <div class="hint gap-sm">

@@ -228,9 +228,17 @@ button.act{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 
   color:var(--on-accent);background:linear-gradient(135deg,#3b8cff,#5ad2ff);
   box-shadow:0 4px 14px rgba(43,127,255,.24);transition:.15s}
 button.act:hover{box-shadow:0 6px 18px rgba(43,127,255,.34)}
+/* 常规操作：有副作用但可逆（启动 / 停止 / 刷新 / 打开）。白底 + 中性边框。 */
 button.act.ghost{background:var(--card);color:var(--dim);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);background:var(--card)}
-button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
+/* 只读查看：不改变任何状态（全屏 / 详情 / 日志 / 复制）。**没有边框** —— 一排按钮里，
+   有框的都能改状态、没框的只是看看，这是最省事的一眼区分。此前查看类与常规操作同为
+   ghost，两者只能靠读文案分辨。 */
+button.act.view{background:none;color:var(--dim);border-color:transparent;font-weight:500;box-shadow:none}
+button.act.view:hover{color:var(--accent);background:var(--accent-weak);border-color:transparent}
+/* 破坏性：不可逆（卸载 / 删除 / 终止 / 封禁）。边框也换成红系 —— 只染字的颜色，
+   远看与常规按钮没有差别（此前正是如此）。 */
+button.act.danger{background:var(--card);color:var(--bad);border-color:rgba(240,68,56,.4);font-weight:600;box-shadow:none}
 button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
 /* 模块页面：模块自己的 UI 以同源 iframe 嵌入（面板不代理它的流量，也不替它认证）。
    用确定的 calc 高度而不是父级 flex/百分比：移动端的 flex 链给不出「确定高度」，
@@ -244,26 +252,30 @@ button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)
    这里只是「收起外壳、把模块那张卡片撑满当前页面」，Esc 或工具条按钮即可复原。
    用「隐藏外围 + 撑满」而不是 position:fixed：后者会被祖先的 backdrop-filter /
    transform 形成的包含块影响，覆盖范围算不准。 */
+/* html 与 body 都要挂：滚动条挂在 html 上，只禁 body 的溢出页⾯照样能滚 ——
+   全屏时右侧留一条滚动条、底下露一条白边（1440×1000 下实测约 15px）。 */
+html.mod-focusing,
 body.mod-focusing{overflow:hidden}
+/* 高度在这一层就钉死，父级链才是确定的（下面 subview 的 100vh 要靠它兜住） */
+html.mod-focusing .shell{height:100vh;min-height:0}
 /* 外壳全收起。子导航也要收 —— 它常驻约 45px，不藏起来就谈不上铺满。 */
-body.mod-focusing .side,
-body.mod-focusing .topbar,
-body.mod-focusing .subnav{display:none!important}
-body.mod-focusing main{padding:0}
-/* 只留当前可见的那一个模块视图（其余都是 .hidden），让它和里面的 iframe 一起撑满。
-   高度给 100vh 而不是 100%：.shell 的高度靠 min-height 撑着，父级链给不出确定高度，
-   百分比会退化成 auto（上面 .mod-frame 那条注释说的就是同一个坑）。 */
-body.mod-focusing .subview:not(.hidden){height:100vh}
-body.mod-focusing .subview:not(.hidden)>.panel{height:100%;margin:0;padding:8px 8px 0;
+html.mod-focusing .side,
+html.mod-focusing .topbar,
+html.mod-focusing .subnav{display:none!important}
+html.mod-focusing main{padding:0}
+/* 只留当前可见的那一个模块视图（其余都是 .hidden），让它和里面的 iframe 一起撑满。 */
+html.mod-focusing .subview:not(.hidden){height:100vh}
+html.mod-focusing .subview:not(.hidden)>.panel{height:100%;margin:0;padding:8px 8px 0;
   display:flex;flex-direction:column;border:none;border-radius:0;box-shadow:none;
   background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 /* 工具条必须留着 —— 退出全屏的按钮在上面。说明与配置折叠块让位给内容。 */
-body.mod-focusing .subview:not(.hidden)>.panel>h2{flex:0 0 auto}
-body.mod-focusing .subview:not(.hidden)>.panel>.hint,
-body.mod-focusing .subview:not(.hidden)>.panel>details{display:none}
-body.mod-focusing .mod-frame{flex:1 1 auto;height:auto;min-height:0;border-radius:8px 8px 0 0}
+html.mod-focusing .subview:not(.hidden)>.panel>h2{flex:0 0 auto}
+html.mod-focusing .subview:not(.hidden)>.panel>.hint,
+html.mod-focusing .subview:not(.hidden)>.panel>details{display:none}
+html.mod-focusing .mod-frame{flex:1 1 auto;height:auto;min-height:0;border-radius:8px 8px 0 0}
 
-button.act.warn{background:var(--card);color:var(--warn);border-color:var(--line);font-weight:500;box-shadow:none}
+/* 需要留意：会中断服务或影响可用性（重启容器 / 重启服务 / 重启面板）。边框换成橙系。 */
+button.act.warn{background:var(--card);color:var(--warn);border-color:rgba(247,144,9,.4);font-weight:600;box-shadow:none}
 button.act.warn:hover{color:#fff;background:var(--warn);border-color:var(--warn)}
 button.act:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 button.mini,button.act.mini{height:26px;padding:0 9px;font-size:12px;border-radius:8px;box-shadow:none}
