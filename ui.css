@@ -435,6 +435,13 @@ table:has(#fmBody) td:last-child{width:1%}
 .kv.wide{grid-template-columns:minmax(150px,auto) minmax(0,1fr)}   /* 避免 sshd 这类长键名被压缩换行 */
 .kv .k{color:var(--dim2);overflow-wrap:anywhere}
 .kv .v{color:var(--text);overflow-wrap:anywhere;min-width:0;padding:0}
+/* .kv 里的「次要说明」：v 与 hint 同时出现时按 hint 的语义走。
+   不写这条的话 .kv .v{color:var(--text)} 特异性更高，hint 永远压不动它 ——
+   本意是暗色次要文字，实际显示成亮色正文，和别处的说明不是一个观感。
+   字号用 inherit 跟随 .kv，窄屏压缩时不会比同卡片的正文还大。 */
+.kv .v.hint{color:var(--dim2);font-size:inherit}
+/* 跨两列的整行说明（.kv 是两列网格，长段落需要通栏，否则左边空一列） */
+.kv>.full{grid-column:1/-1}
 @media (max-width:560px){.kv,.kv.wide{grid-template-columns:minmax(0,1fr)}}
 pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
     overflow:auto;font-size:12px;margin:0;max-height:340px;white-space:pre-wrap;word-break:break-all}

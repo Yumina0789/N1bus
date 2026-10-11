@@ -243,8 +243,10 @@
       <div class="toolbar">
         <button class="act ghost" onclick="loadModules(true)">
           <svg class="ico"><use href="#i-refresh"/></svg>刷新商店</button>
-        <span class="hint" id="stStoreHint"></span>
       </div>
+      <!-- 说明文字独立成行，与「已安装」等卡片一致；挤在 toolbar 里会让同一类文字
+           在不同卡片上有两种位置和两种观感。 -->
+      <div class="hint gap-sm" id="stStoreHint"></div>
       <div class="scroll"><table><thead><tr><th>模块</th><th>说明</th><th>版本</th>
         <th class="num">操作</th></tr></thead><tbody id="stStoreBody"></tbody></table></div>
     </div>
@@ -397,9 +399,9 @@
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-check"/></svg>SSH 登录成功</div>
         <div class="v" id="seOk">–</div><div class="n">auth.log 全量统计</div></div>
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-shield"/></svg>防火墙（ufw）</div>
-        <div class="v" style="font-size:16px" id="seUfwV">–</div><div class="n" id="seUfwN">–</div></div>
+        <div class="v" id="seUfwV">–</div><div class="n" id="seUfwN">–</div></div>
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-alert"/></svg>fail2ban</div>
-        <div class="v" style="font-size:16px" id="seF2bV">–</div><div class="n" id="seF2bN">–</div></div>
+        <div class="v" id="seF2bV">–</div><div class="n" id="seF2bN">–</div></div>
     </div>
 
   <div class="subview" id="sub-guard">

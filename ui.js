@@ -764,7 +764,7 @@ async function loadSecurity(){
           累计封禁 ${cnt(f2bNum(d, "Total banned"))} ·
           累计失败 ${cnt(f2bNum(d, "Total failed"))}</div>`;
       }).join("")
-    : `<div class="k">状态</div><div class="v hint">${esc(f2b.hint || "没有 fail2ban 状态")}</div>`;
+    : `<div class="k">状态</div><div class="v hint">${esc(f2b.hint || "fail2ban 未运行，或它当前没有任何封禁策略")}</div>`;
   document.getElementById("seF2bRaw").textContent =
     jails.map(k => "== " + k + " ==\n" + f2b.detail[k]).join("\n\n")
     || (f2b.hint || "（没有 fail2ban 状态）");
@@ -840,7 +840,7 @@ function renderPorts(a){
     (a.unmatched || []).map(x => `${num(x.port)}/${esc(x.proto)}`).join("、") +
     '　已放行但本机无服务监听，该规则不产生实际效果</div></div>');
   if(!a.active && a.available) blocks.push(
-    '<div class="kv wide"><div class="k"></div><div class="v warn-v">ufw 当前未启用，以下为已保存的规则。</div></div>');
+    '<div class="kv wide"><div class="v warn-v full">ufw 当前未启用，以下为已保存的规则。</div></div>');
   document.getElementById("sePortTips").innerHTML = blocks.join("");
 }
 function portAllowQuick(port, proto){
@@ -983,7 +983,8 @@ function renderGuard(g){
   const el = document.getElementById("seGuard");
   if(!el) return;
   if(!g){
-    el.innerHTML = '<div class="k">面板登录限流</div><div class="v hint">服务端未提供该数据</div>';
+    el.innerHTML = '<div class="k">面板登录限流</div><div class="v hint">'
+      + '服务端这次没有返回限流状态，通常是面板版本较旧；升级后这里会显示触发条件与在封来源。</div>';
     return;
   }
   const blocked = g.blocked || [];
@@ -1000,7 +1001,8 @@ function renderGuard(g){
                 onclick="unblock('${esc(b.ip)}')">解除封禁</button></div>`).join("") : "") +
     // 这里原先贴了一整条 curl 命令。界面上不该出现这种部署细节：
     // 列表里本来就能直接点「解封」，命令行请查文档。
-    '<div class="k"></div><div class="v hint">按来源 IP 计数、不锁定账户；封禁期间该来源无法登录面板。' +
+    // 整行说明跨两列（.full），否则 .kv 的左列会空着。
+    '<div class="v hint full">按来源 IP 计数、不锁定账户；封禁期间该来源无法登录面板。' +
     '成功登录一次即清零，连续 24 小时不再犯则档位归零。</div>';
 }
 async function unblock(ip){
@@ -2367,10 +2369,12 @@ function renderStore(st){
   const hint = document.getElementById("stStoreHint");
   if(!body) return;
   const mods = st.modules || [];
-  meta.textContent = st.available ? (mods.length + " 个可用") : "不可用";
+  meta.textContent = st.available ? (mods.length + " 个可安装") : "商店不可用";
   hint.textContent = st.available
-    ? ("来源 " + (st.url || "") + (st.demo ? "　[演示模式]" : ""))
-    : (st.hint || "商店不可用");
+    ? ("商店来源 " + (st.url || "")
+       + "　本体只认这一个受信仓库：模块以 tar.gz 分发，安装、升级、卸载都按白名单动作执行，"
+       + "不运行模块自带的脚本。" + (st.demo ? "　[演示模式]" : ""))
+    : (st.hint || "商店不可用，暂时列不出可安装的模块");
   body.innerHTML = mods.length ? ""
     : '<tr><td colspan="4" class="empty">商店里还没有模块</td></tr>';
   for(const m of mods){
@@ -2401,7 +2405,7 @@ async function loadModules(forceStore){
     _modsInstalled = j.installed || [];
     const dir = document.getElementById("stModDir");
     if(dir) dir.textContent = j.dir || "/opt/n1bus/modules";
-    document.getElementById("stInstMeta").textContent = _modsInstalled.length + " 个";
+    document.getElementById("stInstMeta").textContent = _modsInstalled.length + " 个已安装";
     const tb = document.getElementById("stInstBody");
     tb.innerHTML = _modsInstalled.length ? ""
       : '<tr><td colspan="4" class="empty">还没有装任何模块</td></tr>';
