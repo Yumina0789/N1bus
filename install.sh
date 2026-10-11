@@ -95,7 +95,7 @@ trap 'rm -rf "$WORK"' EXIT
 # 此时 $SCRIPT_DIR 中没有这些文件，glob 匹配不到就不会展开，会把字面量
 # "n1bus*.py" 当作文件名去请求，导致 404（2026-10 迁移时曾发生，并回滚过一次）。
 # 代价是新增模块需要同步修改此处 —— 由 tools/check.py 的「清单一致性」检查覆盖。
-SRC_FILES="n1bus.py n1bus_util.py n1bus_cache.py n1bus_audit.py n1bus_files.py n1bus_actions.py n1bus_system.py n1bus_security.py n1bus_probe.py n1bus_tasks.py n1bus_kms.py n1bus_web.py ui.html ui.css ui.js"
+SRC_FILES="n1bus.py n1bus_util.py n1bus_cache.py n1bus_audit.py n1bus_files.py n1bus_actions.py n1bus_system.py n1bus_security.py n1bus_probe.py n1bus_tasks.py n1bus_kms.py n1bus_modules.py n1bus_web.py ui.html ui.css ui.js"
 
 echo "==> 取源码"
 for f in $SRC_FILES; do

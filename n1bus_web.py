@@ -224,6 +224,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, p.docker.dsh())
             if u.path == "/api/kms":
                 return self._send(200, self.app["kms"].all())
+            if u.path == "/api/modules":
+                mods = self.app["modules"]
+                return self._send(200, {"installed": mods.installed(),
+                                        "store": mods.store(),
+                                        "dir": str(mods.root)})
+            if u.path == "/api/modules/store":
+                # 商店清单带 5 分钟缓存；`?fresh=1` 强制回源（界面的「刷新商店」用）
+                return self._send(200, self.app["modules"].store(
+                    force=q.get("fresh", ["0"])[0] in ("1", "true", "yes")))
             if u.path == "/api/docker/images":
                 return self._send(200, p.docker.images())
             if u.path == "/api/docker/logs":
@@ -399,6 +408,51 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/alerts/test":
             ok, detail = self.app["alerts"].test(ip)
             return self._send(200, {"ok": ok, "detail": detail})
+
+        # --- 模块：装与卸（多步编排，因此不走通用的 /api/action）-------------
+        # 通用入口一次只跑一个动作；而「装」是「下载校验落盘 → 起容器」，
+        # 「卸」是「摘容器 → 删目录」。两步之间的顺序是有意义的，所以在这里串。
+        if u.path == "/api/modules/install":
+            b = self._json_body()
+            mid = (b.get("id") or "").strip()
+            mods = self.app["modules"]
+            ok, err, meta = mods.fetch(mid, b.get("version"))
+            self.app["audit"].write("module.fetch", mid or "(空)", ok,
+                                    err or ("已落盘 %s %s" % (meta.get("id"), meta.get("version"))),
+                                    ip)
+            if not ok:
+                return self._send(400, {"ok": False, "error": err})
+            res = {"ok": True, "module": meta}
+            if meta.get("compose"):
+                # 先落盘、后编排：包或清单不合法时，服务器上不会留下半个容器
+                r = run_action("module.install", {"id": mid}, ip,
+                               self.app["probe"].audit,
+                               dry=not self.app["probe"].real)
+                detail = r.get("detail") or r.get("error") or ""
+                res["container"] = {"ok": bool(r.get("ok")), "detail": detail}
+                if not r.get("ok"):
+                    res["ok"] = False
+                    res["error"] = "包已落盘，但容器没起来：%s" % detail
+            return self._send(200 if res["ok"] else 500, res)
+        if u.path == "/api/modules/uninstall":
+            mid = (self._json_body().get("id") or "").strip()
+            mods = self.app["modules"]
+            if mid not in mods.installed_ids():
+                return self._send(404, {"ok": False, "error": "没有安装这个模块：%s" % mid})
+            # 先摘容器再删目录：`-f <path>` 指着模块目录，目录一没就再也操作不了那套
+            # 容器了。`down` 保留数据卷。
+            gone = run_action("module.down", {"id": mid}, ip,
+                              self.app["probe"].audit,
+                              dry=not self.app["probe"].real)
+            if not gone.get("ok"):
+                detail = gone.get("detail") or gone.get("error") or ""
+                self.app["audit"].write("module.remove", mid, False,
+                                        "容器未摘除，目录保留：%s" % detail, ip)
+                return self._send(500, {"ok": False, "error":
+                                        "容器没摘掉，因此没有删目录：%s" % detail})
+            ok, err = mods.remove(mid)
+            self.app["audit"].write("module.remove", mid, ok, err or "已移除（数据卷保留）", ip)
+            return self._send(200 if ok else 500, {"ok": ok, "error": err})
 
         # --- 自动永久封禁 --------------------------------------------------
         # 策略本身不是系统命令，因此不进入 ACTIONS 表；但实际封禁仍通过 ufw.deny

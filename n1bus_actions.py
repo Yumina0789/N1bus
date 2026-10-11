@@ -1,8 +1,12 @@
 """n1bus_actions —— 白名单动作表与参数校验器：面板能改变系统状态的全部手段都在这张表里。"""
 
+import json
 import re
 import time
+from pathlib import Path
 
+import n1bus_modules
+from n1bus_modules import ID_RE as MODULE_ID_RE
 from n1bus_util import NAME_RE, UNIT_RE, run
 
 
@@ -18,6 +22,44 @@ def _val_name(v):
     if not NAME_RE.match(v):
         raise ValueError("名字不合法")
     return v
+
+
+def _val_module_id(v):
+    """模块 id：格式合法，且该模块确实已安装。
+
+    「已安装」这一条也放在这里，是为了让四个 `module.*` 动作共用同一道闸门。
+    校验器抛 ValueError 会被 run_action 捕获成一句明确的错误，而不是让 docker
+    拿着一个不存在的路径去报一句难懂的话。
+    """
+    mid = (v or "").strip()
+    if not MODULE_ID_RE.match(mid):
+        raise ValueError("模块 id 不合法（应为 ^[a-z][a-z0-9-]{1,31}$）")
+    if not (Path(n1bus_modules.modules_dir()) / mid / "manifest.json").is_file():
+        raise ValueError("该模块没有安装：%s" % mid)
+    return mid
+
+
+def _compose_argv(mid, *sub):
+    """拼出 `docker compose -p n1bus-<id> -f <模块自己的 compose> <sub...>`。
+
+    路径由**本体**算成 `/opt/n1bus/modules/<id>/`，compose 文件名取自该模块
+    **通过校验的 manifest** —— 模块影响不了命令本身，只能影响自己目录里的一个文件名。
+    没有 compose 的模块（纯 iframe）不能走这几个动作，这不是缺陷。
+    """
+    fname = "compose.yml"
+    root = Path(n1bus_modules.modules_dir())
+    mf = root / mid / "manifest.json"
+    try:
+        comp = (json.loads(mf.read_text(encoding="utf-8")) or {}).get("compose") or {}
+        fname = str(comp.get("file") or fname)
+    except (OSError, ValueError):
+        pass
+    if "/" in fname or "\\" in fname or fname.startswith("."):
+        raise ValueError("manifest 里的 compose 文件名不合法")
+    path = root / mid / fname
+    if not path.is_file():
+        raise ValueError("该模块没有 compose 文件（%s），不需要容器编排" % fname)
+    return ["docker", "compose", "-p", "n1bus-" + mid, "-f", str(path)] + list(sub)
 
 
 PROTECTED_UNITS = {
@@ -236,6 +278,35 @@ ACTIONS = {
     "apt.update": {"label": "刷新软件包索引", "desc": "apt-get update",
                    "params": {}, "danger": False,
                    "argv": lambda p: ["apt-get", "update"], "timeout": 300},
+    # 模块动作（ADR 0012 / docs/modules.md §6）：argv 全由本体拼死，路径来自
+    # /opt/n1bus/modules/<id>/，模块**不提供**任何要执行的字符串。
+    "module.install": {"label": "安装模块（起容器）",
+                       "desc": "docker compose -p n1bus-<id> up -d",
+                       "params": {"id": _val_module_id}, "danger": True,
+                       "argv": lambda p: _compose_argv(p["id"], "up", "-d"),
+                       "timeout": 300},
+    "module.start": {"label": "启动模块容器",
+                     "desc": "docker compose -p n1bus-<id> start",
+                     "params": {"id": _val_module_id}, "danger": False,
+                     "argv": lambda p: _compose_argv(p["id"], "start"),
+                     "timeout": 120},
+    "module.stop": {"label": "停止模块容器",
+                    "desc": "docker compose -p n1bus-<id> stop",
+                    "params": {"id": _val_module_id}, "danger": True,
+                    "argv": lambda p: _compose_argv(p["id"], "stop"),
+                    "timeout": 120},
+    "module.restart": {"label": "重启模块容器",
+                       "desc": "docker compose -p n1bus-<id> restart",
+                       "params": {"id": _val_module_id}, "danger": True,
+                       "argv": lambda p: _compose_argv(p["id"], "restart"),
+                       "timeout": 120},
+    # 卸载必须先摘容器再删目录：`-f <path>` 指向模块目录，目录一没就再也操作不了这套
+    # 容器了。`down` 只移除容器与网络，**不动数据卷**。
+    "module.down": {"label": "移除模块容器",
+                    "desc": "docker compose -p n1bus-<id> down（保留数据卷）",
+                    "params": {"id": _val_module_id}, "danger": True,
+                    "argv": lambda p: _compose_argv(p["id"], "down"),
+                    "timeout": 180},
 }
 
 
@@ -259,7 +330,12 @@ def run_action(name, params, ip, audit, dry=False):
             clean[key] = validator((params or {}).get(key))
         except (ValueError, TypeError, AttributeError) as e:
             return {"ok": False, "error": "参数 %s 不合法：%s" % (key, e)}
-    argv = spec["argv"](clean)
+    try:
+        argv = spec["argv"](clean)
+    except (ValueError, TypeError, KeyError, OSError) as e:
+        # argv 构造函数也会失败（例如模块缺少 compose 文件）—— 让它变成一条
+        # 可读的错误返回，而不是一个把响应体带走的异常
+        return {"ok": False, "error": "无法构造命令：%s" % e}
     if not argv or not all(isinstance(a, str) and a and "\x00" not in a for a in argv):
         return {"ok": False, "error": "构造出的命令不合法，已拦截"}
     if dry:

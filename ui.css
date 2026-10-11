@@ -284,6 +284,13 @@ body.dsh-focusing #dshFrame{border-radius:8px 8px 0 0}
    刻意**不**给 iframe 设死宽度让它横向拖 —— 手机上左右拖动本身就不符合操作习惯，
    适配单屏显示更符合移动端使用习惯。 */
 
+/* 模块页面：模块自己的 UI 以同源 iframe 嵌入（本体不代理它的流量，也不替它认证）。
+   这里用确定的 calc 高度而不是父级 flex/百分比 —— 与 #dshFrame 那边同样的理由：
+   移动端的 flex 链给不出「确定高度」，百分比会退化成 auto，iframe 就只剩 min-height。 */
+.mod-frame{display:block;width:100%;height:calc(100vh - 240px);min-height:360px;
+  border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.mod-frame + .hint{margin-top:8px}
+
 button.act.warn{background:var(--card);color:var(--warn);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.warn:hover{color:#fff;background:var(--warn);border-color:var(--warn)}
 button.act:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}

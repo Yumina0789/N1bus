@@ -38,6 +38,7 @@
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2.2M12 18.3v2.2M4.6 7.8l1.9 1.1M17.5 15.1l1.9 1.1M4.6 16.2l1.9-1.1M17.5 8.9l1.9-1.1"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5"/><path d="M15 4h5v5"/><path d="M15 20h5v-5"/><path d="M9 20H4v-5"/></symbol>
   <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M4 9h5V4"/><path d="M20 9h-5V4"/><path d="M20 15h-5v5"/><path d="M4 15h5v5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 </svg>
 
 <div id="login" class="hidden">
@@ -229,6 +230,10 @@
     <div class="subnav glass" id="subnav-ext">
       <button data-sub="kms" class="active"><svg class="ico"><use href="#i-shield"/></svg>KMS 授权服务</button>
       <button data-sub="harness"><svg class="ico"><use href="#i-plug"/></svg>DeepSeek Harness</button>
+      <!-- 已装模块的按钮由 syncModuleViews() 插在「添加模块」之前。
+           模块**装上即出现在这里** —— 没有单独的「接入」开关（docs/modules.md）。 -->
+      <span class="grow"></span>
+      <button data-sub="store" id="extStoreBtn"><svg class="ico"><use href="#i-plus"/></svg>添加模块</button>
     </div>
 
   <div class="subview" id="sub-kms">
@@ -327,6 +332,30 @@
       <iframe id="dshFrame" title="DeepSeek Harness" referrerpolicy="no-referrer"></iframe>
     </div>
   </div>
+  <div class="subview hidden" id="sub-store">
+    <div class="panel glass">
+      <h2><svg class="ico"><use href="#i-box"/></svg>模块商店
+        <span class="end" id="stStoreMeta">–</span></h2>
+      <div class="toolbar">
+        <button class="act ghost" onclick="loadModules(true)">
+          <svg class="ico"><use href="#i-refresh"/></svg>刷新商店</button>
+        <span class="hint" id="stStoreHint"></span>
+      </div>
+      <div class="scroll"><table><thead><tr><th>模块</th><th>说明</th><th>最新</th>
+        <th class="num">操作</th></tr></thead><tbody id="stStoreBody"></tbody></table></div>
+    </div>
+    <div class="panel glass">
+      <h2><svg class="ico"><use href="#i-plug"/></svg>已安装
+        <span class="end" id="stInstMeta">–</span></h2>
+      <div class="hint gap-sm">模块装在 <code class="mono" id="stModDir">/opt/n1bus/modules</code>；
+        卸载会先摘掉容器再删目录，<b>数据卷保留</b>。</div>
+      <div class="scroll"><table><thead><tr><th>模块</th><th>版本</th><th>页面</th>
+        <th class="num">操作</th></tr></thead><tbody id="stInstBody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- 已装模块自己的页面（iframe）由 syncModuleViews() 建在这里 -->
+  <div id="extMods"></div>
   </section>
 
   <!-- 运行：服务 / 容器 / 端口进程，三选一，避免一次性全部铺开 -->

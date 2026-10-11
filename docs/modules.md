@@ -1,10 +1,20 @@
 # 模块规范（Modules）
 
-> **状态：已与用户逐项确认的目标形态，代码尚未实现**（2026-10-11）
+> **状态：框架已实现（2026-10-11）—— KMS / Harness 搬出本体尚未做**
 >
-> 本文件描述的是**要做成什么样**。以下东西在当前代码里**一处都没有**：
-> 模块系统本身、registry 与商店的任何界面或路由、`module.*` 动作。
-> KMS 与 Harness 当前仍是本体里两个硬编码的子视图（`n1bus_kms.py` + `ui.html` 的 `tab-ext`）。
+> 已经落地的部分：
+>
+> * `n1bus_modules.py` —— 商店清单、manifest 与模块包的校验、防穿越解包、安装与卸载；
+> * 五个受控动作 `module.install` / `.start` / `.stop` / `.restart` / `.down`；
+> * 四个端点 `/api/modules`、`/api/modules/store`、`/api/modules/install`、
+>   `/api/modules/uninstall`；
+> * 扩展功能页：空列表 + 「添加模块」→ 商店 → 逐个装卸，装上即出现子标签（iframe 页面）。
+>
+> 还没做：
+>
+> * **KMS 与 Harness 仍硬编码在本体里**（`n1bus_kms.py` + `ui.html` 的 `tab-ext`），
+>   尚未打包装进商店 —— 要等 `Yumina0789/N1bus-modules` 仓库建好、模块包发布之后；
+> * 升级、模块间依赖、registry 签名（见 §10）。
 >
 > **2026-10-11 用户确认的五条形态**（覆盖本文件早先的写法）：
 >
@@ -191,9 +201,13 @@ N1bus-modules/                    # 仓库 = registry
 | `module.start` | `docker compose -p n1bus-<id> -f <path>/compose.yml start` | ✖ |
 | `module.stop` | `docker compose -p n1bus-<id> -f <path>/compose.yml stop` | ✔ |
 | `module.restart` | `docker compose -p n1bus-<id> -f <path>/compose.yml restart` | ✔ |
+| `module.down` | `docker compose -p n1bus-<id> -f <path>/compose.yml down` | ✔ |
 
 `<id>` 只来自**通过校验的 manifest**；`<path>` 由本体算成 `/opt/n1bus/modules/<id>`，
 **不接受 manifest 里的路径**。
+
+`module.down` 只用于**卸载**：`-f <path>` 指着模块目录，目录一删就再也操作不了那套容器了，
+所以必须先摘容器。它**保留数据卷**（不带 `-v`）。
 
 **两项待确认的辅助能力**：早先的「读模块容器日志」与「代理模块的 HTTP API」原本是给
 **声明式页面块**供数的。既然只留 iframe（第 3 条），这两项是否还需要：
@@ -259,8 +273,10 @@ RSC4D 上线后，**v1m-dash 与 vlmcsd 退役**，激活记录不迁移（见 A
 
 | # | 问题 | 倾向 |
 |---|---|---|
-| 1 | 模块的升级 / 卸载 | 下一轮 |
+| 1 | 模块的**升级** | 下一轮（**卸载已实现**：先 `module.down` 再删目录，保留数据卷） |
 | 2 | 模块之间的依赖 | 不做 |
 | 3 | registry 是否要求签名（minisign/GPG） | 先不做；哈希 + 单源已在可接受范围 |
 | 4 | 除读日志外，是否还要「代模块调本机 HTTP API」 | 倾向不要（见 §6） |
 | 5 | 模块页面的同源路径规则（`/m/<id>/` 还是别的） | 实现时定 |
+| 6 | 模块根目录（`/opt/n1bus/modules`）是否要做成可配置 | 目前真机固定、演示模式指到数据目录下 |
+| 7 | 商店地址 | 已可用 `--store-url` / `N1BUS_STORE_URL` 换（默认 registry 仓库的 Pages） |

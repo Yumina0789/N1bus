@@ -16,6 +16,7 @@ n1bus —— 服务器管理面板的入口。
     n1bus_probe     真机与演示两套数据源
     n1bus_tasks     计划任务与告警
     n1bus_kms       KMS 授权服务（只读 + 白名单写转发）
+    n1bus_modules   模块域（商店清单、模块包校验与解包）
     n1bus_web       HTTP 层（Handler + 页面拼装）
 
 两条硬性约束（内容原样保留，见 docs/adr/）：
@@ -50,6 +51,8 @@ from urllib.parse import urlparse, parse_qs
 
 from n1bus_audit import Audit
 from n1bus_kms import KMSService, NIMBUS_URL, _DemoKMS
+import n1bus_modules
+from n1bus_modules import Modules
 from n1bus_probe import DemoProbe, HostProbe, Sampler
 from n1bus_security import (AUTOBAN_INTERVAL, AUTOBAN_MIN_THRESHOLD, AUTOBAN_THRESHOLD,
                             Accounts, Defender, Enforcer, LoginGuard, PRIVATE_NETS)
@@ -112,6 +115,10 @@ def main():
                     help="KMS 授权服务（v1m-dash）的地址，默认 %s" % NIMBUS_URL)
     ap.add_argument("--nimbus-token", default=os.environ.get("NIMBUS_TOKEN", ""),
                     help="上面那个面板的 token；默认自动从它的 docker 卷里读")
+    ap.add_argument("--store-url", default=os.environ.get("N1BUS_STORE_URL")
+                    or n1bus_modules.STORE_URL,
+                    help="模块商店（registry 仓库的 GitHub Pages）地址，默认 %s"
+                         % n1bus_modules.STORE_URL)
     args = ap.parse_args()
 
     if args.mode == "demo":
@@ -123,6 +130,11 @@ def main():
         data_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         sys.exit("无法创建数据目录：%s" % e)
+    if args.mode == "demo":
+        # 演示模式把模块根指到数据目录下：/opt 在开发机上不可写，而安装流程必须真落盘
+        # 才能演练到底（否则 module.install 的「该模块没有安装」会误报）。
+        # 必须在构造 Modules 之前设置 —— 动作层读的是这个模块级变量。
+        n1bus_modules.MODULES_DIR = str(data_dir / "modules")
 
     token = args.token or os.environ.get("N1BUS_TOKEN") or ""
     token_file = Path(args.token_file) if args.token_file else data_dir / "n1bus.token"
@@ -162,6 +174,13 @@ def main():
            "accounts": accounts, "audit": audit,
            "guard": LoginGuard(data_dir / "loginguard.json"),
            "tasks": tasks, "alerts": alerts,
+           # 演示模式用一个可写的临时模块目录：安装流程要真的落盘才能演练到底。
+           # 同时改写模块根 —— 动作层（n1bus_actions）通过 modules_dir() 读它，
+           # 两边必须是同一个值，否则「该模块没有安装」会误报。
+           "modules": Modules(root=(data_dir / "modules") if args.mode == "demo"
+                                   else n1bus_modules.MODULES_DIR,
+                              store_url=args.store_url,
+                              dry=(args.mode == "demo")),
            "allow_nets": parse_networks(args.allow_ip)}
     Handler.app = app
 

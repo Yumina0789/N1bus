@@ -287,6 +287,7 @@ try:
     import n1bus
     import n1bus_audit
     import n1bus_cache
+    import n1bus_modules as NM
     import n1bus_security
     import n1bus_util
     unit = n1bus_security.LoginGuard(workdir / "guard-unit.json", window=300, limit=2, tiers=(1, 2, 3))
@@ -427,6 +428,101 @@ try:
         st, body = call("/api/security", cred=TOKEN)
         dd = json.loads(body).get("defender") or {}
         ok(dd.get("running") is True, "打开之后巡检线程真的在跑（曾经只改状态、永不巡检）")
+
+        print("== 模块：接口 ==")
+        st, body = call("/api/modules", cred=TOKEN)
+        jm = json.loads(body)
+        ok(st == 200 and isinstance(jm.get("installed"), list),
+           "GET /api/modules 返回已装列表")
+        st_mods = (jm.get("store") or {}).get("modules") or []
+        ok((jm.get("store") or {}).get("available") is True and len(st_mods) == 2,
+           "演示模式的商店清单有两个模块：%s" % [m.get("id") for m in st_mods])
+        ok(all(m.get("versions") for m in st_mods), "商店条目带版本与哈希信息")
+        st, _b = call("/api/modules/store?fresh=1", cred=TOKEN)
+        ok(st == 200, "GET /api/modules/store 可用（?fresh=1 强制回源）")
+        st, _b = call("/api/modules/uninstall", "POST", {"id": "nosuch"}, cred=TOKEN)
+        ok(st == 404, "卸载一个没装的模块 → 404（实际 %s）" % st)
+        st, body = call("/api/action", "POST",
+                        {"name": "module.start", "params": {"id": "nosuch"}}, cred=TOKEN)
+        jx = json.loads(body)
+        ok(jx.get("ok") is False and "没有安装" in (jx.get("error") or ""),
+           "对没装的模块执行 module.start 被校验器挡下：%s" % (jx.get("error"),))
+        st, body = call("/api/modules/install", "POST", {"id": "rsc4d"}, cred=TOKEN)
+        ji = json.loads(body)
+        ok(st == 200 and ji.get("ok") is True,
+           "演示模式安装走通：%s" % (ji.get("error"),))
+        ok((ji.get("module") or {}).get("demo") is True, "演示模式不真下载，带 demo 标记")
+
+        print("== 模块：清单、manifest 与防穿越解包 ==")
+        good, err, mods = NM.check_index({
+            "schema": 1, "registry": "Yumina0789/N1bus-modules",
+            "modules": [{"id": "rsc4d", "name": "KMS", "latest": "1.0.0",
+                         "versions": {"1.0.0": {"url": "packages/rsc4d-1.0.0.tar.gz",
+                                                "sha256": "a" * 64, "size": 10}}}]},
+            NM.STORE_URL)
+        ok(good and mods and mods[0]["id"] == "rsc4d", "合法的 index.json 通过：%s" % (err or "ok"))
+        good, err, _x = NM.check_index({"schema": 2, "modules": []}, NM.STORE_URL)
+        ok(not good, "不认识的 schema 被拒绝：%s" % err)
+        good, err, _x = NM.check_index({"schema": 1, "modules": [
+            {"id": "Bad", "latest": "1.0.0", "versions": {"1.0.0": {
+                "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
+        ok(not good, "非法的模块 id 被拒绝：%s" % err)
+        good, err, _x = NM.check_index({"schema": 1, "modules": [
+            {"id": "rsc4d", "latest": "1.0.0", "versions": {"1.0.0": {
+                "url": "https://evil.example.com/x.tar.gz", "sha256": "a" * 64,
+                "size": 1}}}]}, NM.STORE_URL)
+        ok(not good, "指向别的主机的包地址被拒绝：%s" % err)
+        good, err, _x = NM.check_index({"schema": 1, "modules": [
+            {"id": "rsc4d", "latest": "2.0.0", "versions": {"1.0.0": {
+                "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
+        ok(not good, "latest 不在 versions 里被拒绝：%s" % err)
+
+        _mf = {"schema": 1, "id": "rsc4d", "version": "1.0.0",
+               "compose": {"file": "compose.yml", "project": "n1bus-rsc4d"},
+               "page": {"kind": "iframe", "url": "/m/rsc4d/"}}
+        good, err, _x = NM.check_manifest(dict(_mf))
+        ok(good, "合法的 manifest 通过：%s" % (err or "ok"))
+        bad = dict(_mf, compose={"file": "compose.yml", "project": "evil"})
+        good, err, _x = NM.check_manifest(bad)
+        ok(not good, "compose.project 不是 n1bus-<id> 被拒绝：%s" % err)
+        bad = dict(_mf, page={"kind": "declared", "url": "/m/rsc4d/"})
+        good, err, _x = NM.check_manifest(bad)
+        ok(not good, "page.kind 不是 iframe 被拒绝：%s" % err)
+        bad = dict(_mf, page={"kind": "iframe", "url": "https://evil.example.com/"})
+        good, err, _x = NM.check_manifest(bad)
+        ok(not good, "page.url 不是站内路径被拒绝：%s" % err)
+
+        import io as _io
+        import tarfile as _tar
+
+        def _evil_tar(name, link=False):
+            buf = _io.BytesIO()
+            with _tar.open(fileobj=buf, mode="w:gz") as tf:
+                ti = _tar.TarInfo(name)
+                if link:
+                    ti.type = _tar.SYMTYPE
+                    ti.linkname = "/etc/passwd"
+                    ti.size = 0
+                    tf.addfile(ti)
+                else:
+                    data = b"x"
+                    ti.size = len(data)
+                    tf.addfile(ti, _io.BytesIO(data))
+            buf.seek(0)
+            return buf
+
+        dest = workdir / "unpack-test"
+        dest.mkdir(exist_ok=True)
+        try:
+            NM.safe_extract(_evil_tar("../escape.txt"), str(dest))
+            ok(False, "含 ../ 的包应当被拒绝")
+        except NM.ModuleError as e:
+            ok(True, "含 ../ 的包被拒绝：%s" % e)
+        try:
+            NM.safe_extract(_evil_tar("link", link=True), str(dest))
+            ok(False, "含符号链接的包应当被拒绝")
+        except NM.ModuleError as e:
+            ok(True, "含符号链接的包被拒绝：%s" % e)
 
         print("== 审计来源 IP：不可信来源的 X-Forwarded-For 必须被忽略 ==")
         # _client_ip() 只在「直连方本身落在 --allow-ip 网段内」时才读 XFF。

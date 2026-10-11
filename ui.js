@@ -2176,6 +2176,7 @@ const ACTION_RELOAD = [
   [["docker.autostart"], ["autostart"]],            // 容器开机自启开关，在「系统」页
   [["docker.prune_images"], ["images", "cleanup"]],
   [["docker.rm"], ["docker", "autostart"]],
+  [["module."], ["modules"]],                       // 模块装卸 / 启停，刷模块列表
   [["docker."], ["docker"]],                        // 其余 docker.* 是容器列表
   [["service.", "systemd."], ["services"]],
   [["boot."], ["autostart"]],                       // 服务开机自启开关
@@ -2371,6 +2372,140 @@ async function logoutAll(){
 
 /* --- 标签页与轮询 ----------------------------------------------------- */
 /* 9 个主标签；「运行」「安全」「系统」各带三个子视图，一次只加载看得见的那一个 */
+/* --- 模块：商店与已装列表 ------------------------------------------------
+   装 / 卸是「下载校验落盘 → 起容器」与「摘容器 → 删目录」这样的两步编排，所以走后端
+   专门的端点，而不是通用的 /api/action（那个一次只跑一个动作）。
+   模块**装上即出现在子导航里** —— 没有单独的「接入」开关（见 docs/modules.md）。 */
+let _modsInstalled = [];
+
+function moduleIcon(m){
+  const name = String((m && m.icon) || "").replace(/^i-/, "");
+  if(name && document.getElementById("i-" + name)) return "i-" + name;
+  return "i-plug";            // 图标集里没有就退回通用图标，绝不加载外部 SVG
+}
+
+/* 把已装模块的按钮与页面补齐。内置的 kms / harness 由 HTML 提供，这里跳过它们。
+   每次全部重建：卸载之后按钮与 iframe 必须一起消失。 */
+function syncModuleViews(list){
+  const nav = document.getElementById("subnav-ext");
+  const host = document.getElementById("extMods");
+  const anchor = document.getElementById("extStoreBtn");
+  if(!nav || !host || !anchor) return;
+  host.innerHTML = "";
+  for(const b of Array.from(nav.querySelectorAll("button[data-dyn]"))) b.remove();
+  SUBS.ext = ["kms", "harness", "store"];
+  for(const id of SUBS.ext) SUB_OWNER[id] = "ext";
+  for(const m of list){
+    const mid = m.id;
+    if(!mid || SUBS.ext.includes(mid)) continue;    // kms / harness 用内置的那两个视图
+    SUBS.ext.push(mid);
+    SUB_OWNER[mid] = "ext";
+    const ic = moduleIcon(m);
+    const btn = document.createElement("button");
+    btn.dataset.sub = mid; btn.dataset.dyn = "1";
+    btn.innerHTML = '<svg class="ico"><use href="#' + ic + '"/></svg>' + esc(m.name || mid);
+    btn.onclick = () => showView("ext", mid, true);
+    nav.insertBefore(btn, anchor);
+    const view = document.createElement("div");
+    view.className = "subview hidden";
+    view.id = "sub-" + mid;
+    const url = (m.page && m.page.url) || "";
+    view.innerHTML =
+      '<div class="panel glass">' +
+      '<h2><svg class="ico"><use href="#' + ic + '"/></svg>' + esc(m.name || mid) +
+      ' <span class="end">v' + esc(m.version || "") + (m.builtin ? "　内置" : "") + '</span></h2>' +
+      '<div class="toolbar">' +
+      '<button class="act ghost" onclick="runAction(\'module.start\',{id:\'' + esc(mid) + '\'})">' +
+      '<svg class="ico"><use href="#i-play"/></svg>启动</button>' +
+      '<button class="act ghost" onclick="runAction(\'module.stop\',{id:\'' + esc(mid) + '\'})">' +
+      '<svg class="ico"><use href="#i-stop"/></svg>停止</button>' +
+      '<button class="act" onclick="runAction(\'module.restart\',{id:\'' + esc(mid) + '\'})">' +
+      '<svg class="ico"><use href="#i-restart"/></svg>重启</button>' +
+      '<span class="grow"></span>' +
+      '<button class="act ghost mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
+      '<svg class="ico"><use href="#i-x-circle"/></svg>卸载</button>' +
+      '</div>' +
+      '<div class="hint">页面由模块自己的容器提供，经同源路径嵌入 —— 本体不代理它的流量，也不替它认证。</div>' +
+      '<iframe class="mod-frame" src="' + esc(url) + '" title="' + esc(m.name || mid) + '"></iframe>' +
+      '</div>';
+    host.appendChild(view);
+  }
+}
+
+function renderStore(st){
+  st = st || {};
+  const body = document.getElementById("stStoreBody");
+  const meta = document.getElementById("stStoreMeta");
+  const hint = document.getElementById("stStoreHint");
+  if(!body) return;
+  const mods = st.modules || [];
+  meta.textContent = st.available ? (mods.length + " 个可用") : "不可用";
+  hint.textContent = st.available
+    ? ("来源 " + (st.url || "") + (st.demo ? "　[演示模式]" : ""))
+    : (st.hint || "商店不可用");
+  body.innerHTML = mods.length ? ""
+    : '<tr><td colspan="4" class="empty">商店里还没有模块</td></tr>';
+  for(const m of mods){
+    const have = _modsInstalled.some(x => x.id === m.id);
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>" + esc(m.summary || "") +
+      "</td><td>v" + esc(m.latest || "") + "</td><td class='num'>" +
+      (have ? "<span class='hint'>已安装</span>"
+            : "<button class='act mini' onclick=\"installModule('" + esc(m.id) + "')\">安装</button>") +
+      "</td>";
+    body.appendChild(tr);
+  }
+}
+
+async function loadModules(forceStore){
+  try{
+    if(forceStore){          // 「刷新商店」：绕过服务端那 5 分钟清单缓存
+      renderStore(await api("/api/modules/store?fresh=1"));
+      return;
+    }
+    const j = await api("/api/modules");
+    _modsInstalled = j.installed || [];
+    const dir = document.getElementById("stModDir");
+    if(dir) dir.textContent = j.dir || "/opt/n1bus/modules";
+    document.getElementById("stInstMeta").textContent = _modsInstalled.length + " 个";
+    const tb = document.getElementById("stInstBody");
+    tb.innerHTML = _modsInstalled.length ? ""
+      : '<tr><td colspan="4" class="empty">还没有装任何模块</td></tr>';
+    for(const m of _modsInstalled){
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>v" + esc(m.version || "") +
+        "</td><td class='mono'>" + esc((m.page && m.page.url) || "-") + "</td>" +
+        "<td class='num'><button class='act ghost mini' onclick=\"showView('ext','" + esc(m.id) +
+        "',true)\">打开</button> <button class='act ghost mini' onclick=\"uninstallModule('" +
+        esc(m.id) + "')\">卸载</button></td>";
+      tb.appendChild(tr);
+    }
+    renderStore(j.store);
+    syncModuleViews(_modsInstalled);
+  }catch(e){ toast("模块列表加载失败：" + esc(e.message), true); }
+}
+
+async function installModule(mid){
+  if(!await askConfirm("从商店安装 <b>" + esc(mid) + "</b> ？\n\n会下载模块包、按 sha256 校验，" +
+      "然后起它自己的容器。", {title: "安装模块", okText: "安装"})) return;
+  toast("正在安装 " + esc(mid) + " …（下载与校验需要一点时间）");
+  try{
+    const j = await api("/api/modules/install", {method: "POST", body: JSON.stringify({id: mid})});
+    toast(j.ok ? ("已安装 " + esc(mid)) : ("安装失败：" + esc(j.error || "")), !j.ok);
+  }catch(e){ toast("安装失败：" + esc(e.message), true); }
+  loadModules(); loadAudit();
+}
+
+async function uninstallModule(mid){
+  if(!await askConfirm("卸载 <b>" + esc(mid) + "</b> ？\n\n先摘掉它的容器，再删掉模块目录；" +
+      "<b>数据卷保留</b>。", {title: "卸载模块", danger: true, okText: "卸载"})) return;
+  try{
+    const j = await api("/api/modules/uninstall", {method: "POST", body: JSON.stringify({id: mid})});
+    toast(j.ok ? ("已卸载 " + esc(mid)) : ("卸载失败：" + esc(j.error || "")), !j.ok);
+  }catch(e){ toast("卸载失败：" + esc(e.message), true); }
+  loadModules(); loadAudit();
+}
+
 const TABS = ["overview", "ext", "runtime", "security", "system", "files", "tasks", "logs", "settings"];
 /* 一个 loader = 刷新一块数据。这份"名字 → 函数"的表是唯一的索引：
    视图加载（VIEWS）和「动作之后刷什么」（ACTION_RELOAD）都从这里取，
@@ -2388,6 +2523,7 @@ const LOADER_FN = {
   files: () => loadFiles(FMPATH),
   dsh: loadDsh,
   kms: loadKms,
+  modules: loadModules,
   netinfo: loadNetInfo,
   autostart: loadAutostart,
   syssettings: loadSysSettings,
@@ -2410,8 +2546,10 @@ const VIEWS = {
   overview: [{k: "overview"}],
   // Harness 这个视图只有一块内容：把容器里的 agent 面板嵌进 iframe
   // —— 扩展功能：KMS 授权服务与 DeepSeek Harness ——
-  kms: [{k: "kms"}],
-  harness: [{k: "dsh"}],
+  kms: [{k: "kms"}, {k: "modules"}],
+  harness: [{k: "dsh"}, {k: "modules"}],
+  // 模块商店。已装模块各自的页面由 syncModuleViews() 动态建（见下）
+  store: [{k: "modules"}],
   // —— 运行 ——
   services: [{k: "services"}],
   docker: [{k: "docker"}, {k: "images", fold: "dkImages"}],
@@ -2432,7 +2570,7 @@ const VIEWS = {
 };
 /* 哪些主标签带子视图。子视图 id 必须全局唯一 —— 全局的 subview 容器靠它定位。 */
 const SUBS = {
-  ext: ["kms", "harness"],
+  ext: ["kms", "harness", "store"],
   runtime: ["services", "docker", "net"],
   security: ["guard", "faillog", "svcstate"],
   system: ["maintain", "netstore", "syscfg"],
