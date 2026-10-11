@@ -2103,12 +2103,61 @@ function syncModuleViews(list){
       (dyn ? "入口地址每次启动都会重新生成，打开本页时自动获取。"
            : "页面由模块自己的容器提供，面板只做同源嵌入，不代理它的流量，也不替它认证。") +
       '</div>' +
+      moduleConfigHtml(mid, m.config || []) +
       '<iframe class="mod-frame" id="modFrame-' + esc(mid) + '" title="' + esc(m.name || mid) + '"' +
       (dyn ? "" : ' src="' + esc(url) + '"') + '></iframe>' +
       '</div>';
     host.appendChild(view);
     if(dyn) loadModuleEntry(mid);
   }
+}
+
+/* 模块声明的可配置项。
+   面板只负责收值与交回后端 —— 校验一律在后端做（值最终会进 .env、被 compose 插值），
+   前端再判断一遍只会让两边迟早不一致。 */
+function moduleConfigHtml(mid, items){
+  if(!items.length) return "";
+  const rows = items.map(it => {
+    const id = "cfg-" + mid + "-" + it.key;
+    const v = it.value == null ? "" : String(it.value);
+    const attrs = ' id="' + esc(id) + '" data-cfgkey="' + esc(it.key) + '"';
+    let ctl;
+    if(it.type === "bool"){
+      ctl = '<label class="chk"><input type="checkbox"' + attrs +
+            (v === "1" ? " checked" : "") + '> 启用</label>';
+    }else if(it.type === "select"){
+      ctl = '<select' + attrs + '>' + (it.options || []).map(o =>
+        '<option value="' + esc(o) + '"' + (o === v ? " selected" : "") + '>' + esc(o) +
+        '</option>').join("") + '</select>';
+    }else{
+      ctl = '<input type="' + (it.type === "number" ? "number" : "text") + '"' + attrs +
+            ' value="' + esc(v) + '"' +
+            (it.type === "number" ? ' min="' + esc(it.min) + '" max="' + esc(it.max) + '"' : "") +
+            (it.placeholder ? ' placeholder="' + esc(it.placeholder) + '"' : "") + '>';
+    }
+    return '<div class="row" style="margin:9px 0"><div class="k">' +
+      esc(it.label || it.key) + '</div><div class="v">' + ctl +
+      (it.help ? '<div class="hint">' + esc(it.help) + '</div>' : "") + '</div></div>';
+  }).join("");
+  return '<details class="fold gap-sm"><summary>模块设置' +
+    '<span class="end">' + items.length + ' 项</span></summary><div class="foldbody">' +
+    '<div class="kv wide">' + rows + '</div>' +
+    '<div class="row" style="margin-top:10px"><span class="grow"></span>' +
+    '<button class="act" onclick="saveModuleConfig(\'' + esc(mid) + '\')">保存并应用</button>' +
+    '</div></div></details>';
+}
+
+async function saveModuleConfig(mid){
+  const values = {};
+  document.querySelectorAll('[data-cfgkey][id^="cfg-' + mid + '-"]').forEach(el => {
+    values[el.dataset.cfgkey] = el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value;
+  });
+  try{
+    const j = await api("/api/modules/config",
+                        {method: "POST", body: JSON.stringify({id: mid, values})});
+    if(j.ok){ toast("已保存并应用"); loadModules(); }
+    else toast("保存失败：" + esc(j.error || ""), true);
+  }catch(e){ toast("保存失败：" + esc(e.message), true); }
 }
 
 /* 模块页面的动态入口。

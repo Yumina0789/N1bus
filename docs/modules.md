@@ -172,6 +172,41 @@ N1bus-modules/                    # 仓库 = registry
 | `page.upstream` | ✖ | `host:port`。Caddy 把 `page.url` 这个前缀转给谁；没有它就不生成路由 |
 | `page.entry` | ✖ | 入口地址不是固定值时的取法，见 §6 |
 
+### 可配置项（`config`）
+
+模块可以把「值得在面板上改的参数」声明出来，面板据此在模块页生成一张表单：
+
+```json
+"config": [
+  {"key": "KMS_RATE_LIMIT", "label": "每来源连接数上限", "type": "number",
+   "default": 60, "min": 1, "max": 100000,
+   "help": "同一来源在「拒绝时长」内最多发起多少次连接，超出即丢弃"},
+  {"key": "KMS_DOMAIN", "label": "对外域名", "type": "text",
+   "default": "", "placeholder": "kms.example.com"}
+]
+```
+
+| 字段 | 说明 |
+|---|---|
+| `key` | 必填，`^[A-Z][A-Z0-9_]{1,31}$`。它会成为 `.env` 里的一行 |
+| `type` | `text` / `number` / `bool` / `select` |
+| `default` | `bool` 用 `"0"` / `"1"`；`select` 必须落在 `options` 里 |
+| `min` / `max` | 仅 `number` |
+| `options` | 仅 `select` |
+| `label` / `help` / `placeholder` | 界面文案 |
+
+保存时本体做三件事，顺序不能反：
+
+1. **校验**（类型、范围、字符集）
+2. 写 `<模块目录>/.env`（compose 的变量来源）**与** `config.json`（模块页面读它——
+   页面是它自己容器里的静态页，读不到 `.env`）
+3. `docker compose up -d` —— 环境变量变了，compose 会**重建**受影响的容器
+
+> **`.env` 是行式格式，一个换行就能把一个值变成两个变量。** 所以值只接受可见 ASCII、
+> 长度 ≤ 200，键名也不许出现小写与连字符 —— 否则一个「域名」框就能往 `.env` 里塞变量。
+>
+> 用户改过的 `.env` / `config.json` 在**重装模块时会被保留**：升级不该冲掉配置。
+
 ---
 
 ## 6. 本体的模块框架
@@ -182,6 +217,7 @@ N1bus-modules/                    # 仓库 = registry
 | 2 | **iframe 嵌模块自己的页面** | 站内路径 `/m/<id>/`，**由 Caddy 转给模块的容器**；本体不代理、不替它认证 |
 | 3 | **维护 Caddy 路由** | 装 / 卸模块后重写路由片段并热重载 |
 | 4 | **取动态入口** | `page.entry`，见下 |
+| 5 | **收集并落盘模块配置** | `config` 声明 → 模块页表单 → `.env` + `config.json` → 重建容器（见 §5） |
 
 ### 动作
 

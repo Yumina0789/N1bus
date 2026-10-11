@@ -59,6 +59,14 @@ CONTAINER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
 # 一次性入口 token：从容器日志里提取。规则写死在**本体**里 —— 模块给不了正则。
 ENTRY_TOKEN_RE = re.compile(r"token=([A-Za-z0-9_-]{16,})")
 
+# 模块的可配置项。键名会作为 .env 的一行写出去、再被 compose 插值，所以字符集卡紧：
+# 小写字母、连字符、等号、换行都进不来 —— 否则一个值就能往 .env 里塞新变量。
+CONFIG_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,31}$")
+CONFIG_TYPES = ("text", "number", "bool", "select")
+CONFIG_VALUE_MAX = 200
+CONFIG_ENV = ".env"
+CONFIG_JSON = "config.json"
+
 
 class ModuleError(Exception):
     """模块包或清单不合法。消息会直接进审计与界面。"""
@@ -71,6 +79,48 @@ def _ver_tuple(v):
 
 def _now():
     return time.time()
+
+
+def _read_env(path):
+    """读一份 .env。只认 `KEY=VALUE` 的简单形式 —— 正是本文件自己写出去的那种。"""
+    out = {}
+    if not path.is_file():
+        return out
+    for line in read_text(path).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def _config_value(item, raw):
+    """把界面送来的一项配置校验成可以安全写进 .env 的形式。不合法抛 ModuleError。"""
+    t = item["type"]
+    label = item["label"] or item["key"]
+    if t == "number":
+        try:
+            n = int(str(raw).strip() or 0)
+        except (TypeError, ValueError):
+            raise ModuleError("%s 需要一个整数" % label)
+        lo, hi = item.get("min", 0), item.get("max", 10 ** 9)
+        if not (lo <= n <= hi):
+            raise ModuleError("%s 超出范围（%d–%d）" % (label, lo, hi))
+        return str(n)
+    if t == "bool":
+        return "1" if str(raw).strip() in ("1", "true", "on", "yes") else "0"
+    v = str(raw if raw is not None else "")
+    if t == "select":
+        if v not in item.get("options", []):
+            raise ModuleError("%s 不在可选项里" % label)
+        return v
+    if len(v) > CONFIG_VALUE_MAX:
+        raise ModuleError("%s 太长（最多 %d 字符）" % (label, CONFIG_VALUE_MAX))
+    # .env 一行一个变量：一个换行就能把一个值变成两个变量，控制字符同理。直接拒。
+    if not re.match(r"^[\x20-\x7e]*$", v):
+        raise ModuleError("%s 只能填可见的 ASCII 字符" % label)
+    return v
 
 
 # --------------------------------------------------------------------------
@@ -175,6 +225,57 @@ def check_manifest(raw, entry=None):
         if not isinstance(p, dict):
             return False, "ports 的元素不是对象", {}
 
+    # config：模块在面板上暴露的可配置项。面板只负责收值 → 写 <模块目录>/.env →
+    # 重新 `up -d`（compose 发现环境变量变了会重建容器）。怎么用这些值由模块自己决定。
+    cfg = raw.get("config") or []
+    if not isinstance(cfg, list):
+        return False, "config 不是数组", {}
+    clean_cfg, seen = [], set()
+    for i, c in enumerate(cfg):
+        if not isinstance(c, dict):
+            return False, "config[%d] 不是对象" % i, {}
+        ckey = str(c.get("key") or "")
+        if not CONFIG_KEY_RE.match(ckey):
+            return False, ("config[%d].key 不合法（应为 ^[A-Z][A-Z0-9_]{1,31}$）：%r"
+                           % (i, ckey)), {}
+        if ckey in seen:
+            return False, "config 里有重复的 key：%s" % ckey, {}
+        seen.add(ckey)
+        ctype = str(c.get("type") or "text")
+        if ctype not in CONFIG_TYPES:
+            return False, "config %s 的 type 不认识：%r（只有 %s）" % (
+                ckey, ctype, " / ".join(CONFIG_TYPES)), {}
+        item = {"key": ckey, "type": ctype,
+                "label": str(c.get("label") or ckey)[:60],
+                "help": str(c.get("help") or "")[:300],
+                "default": c.get("default", "" if ctype != "number" else 0)}
+        if ctype == "number":
+            try:
+                item["min"] = int(c.get("min", 0))
+                item["max"] = int(c.get("max", 10 ** 9))
+            except (TypeError, ValueError):
+                return False, "config %s 的 min / max 不是整数" % ckey, {}
+            if item["min"] > item["max"]:
+                return False, "config %s 的 min 比 max 还大" % ckey, {}
+            try:
+                item["default"] = int(item["default"])
+            except (TypeError, ValueError):
+                return False, "config %s 的 default 不是整数" % ckey, {}
+        elif ctype == "select":
+            opts = c.get("options")
+            if not isinstance(opts, list) or not opts:
+                return False, "config %s 是 select，但没有给 options" % ckey, {}
+            item["options"] = [str(o)[:60] for o in opts[:20]]
+            if str(item["default"]) not in item["options"]:
+                return False, "config %s 的 default 不在 options 里" % ckey, {}
+            item["default"] = str(item["default"])
+        elif ctype == "bool":
+            item["default"] = "1" if str(item["default"]) in ("1", "true", "on", "yes") else "0"
+        else:
+            item["placeholder"] = str(c.get("placeholder") or "")[:60]
+            item["default"] = str(item["default"])[:CONFIG_VALUE_MAX]
+        clean_cfg.append(item)
+
     page = raw.get("page") or {}
     if not isinstance(page, dict):
         return False, "page 不是对象", {}
@@ -215,6 +316,7 @@ def check_manifest(raw, entry=None):
         "compose": ({"file": str(comp.get("file")), "project": str(comp.get("project"))}
                     if comp is not None else None),
         "ports": ports,
+        "config": clean_cfg,
         "page": {"kind": "iframe", "url": url, "upstream": up, "entry": ent,
                  "title": str(page.get("title") or raw.get("name") or mid)},
     }
@@ -376,6 +478,45 @@ class Modules:
     def installed_ids(self):
         return [m["id"] for m in self.installed()]
 
+    # --- 配置 ------------------------------------------------------------
+    def config(self, mid):
+        """模块声明的配置项与当前值（读 <模块目录>/.env，缺的用默认值）。没有就返回 None。"""
+        m = {x["id"]: x for x in self.installed()}.get(mid)
+        if m is None:
+            return None
+        cur = _read_env(self.root / mid / CONFIG_ENV)
+        return [dict(item, value=cur.get(item["key"], str(item["default"])))
+                for item in (m.get("config") or [])]
+
+    def save_config(self, mid, values):
+        """校验并写入 <模块目录>/.env 与 config.json。返回 (ok, error, saved)。
+
+        为什么要写两份：`.env` 是给 compose 插值用的（改完 `up -d` 会重建容器），
+        而模块页面是它自己容器里的静态页，读不到 `.env` —— 它读 `config.json`。
+        同一个来源，两种读法。
+        """
+        items = self.config(mid)
+        if items is None:
+            return False, "没有安装这个模块：%s" % mid, {}
+        values = values if isinstance(values, dict) else {}
+        clean = {}
+        try:
+            for item in items:
+                clean[item["key"]] = _config_value(
+                    item, values.get(item["key"], item["value"]))
+        except ModuleError as e:
+            return False, str(e), {}
+        d = self.root / mid
+        try:
+            lines = ["# 由 N1bus 在模块页里写入。重装这个模块时这份文件会被保留。"]
+            lines += ["%s=%s" % (k, clean[k]) for k in sorted(clean)]
+            (d / CONFIG_ENV).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            (d / CONFIG_JSON).write_text(
+                json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError as e:
+            return False, "写配置文件失败：%s" % e, {}
+        return True, "", clean
+
     def entry_url(self, mid):
         """模块页面的入口地址。
 
@@ -462,8 +603,14 @@ class Modules:
                 if not cf.is_file():
                     raise ModuleError("manifest 声明的 compose 文件不存在：%s"
                                       % clean["compose"]["file"])
-            # 就地落盘：把 manifest 所在目录整体当作模块根
+            # 就地落盘：把 manifest 所在目录整体当作模块根。
+            # 用户改过的配置先摘出来 —— 升级模块不该把它自己的配置一起冲掉。
             dest = self.root / mid
+            keep = {}
+            for name in (CONFIG_ENV, CONFIG_JSON):
+                f = dest / name
+                if f.is_file():
+                    keep[name] = read_text(f)
             staging = self.root / (".new-" + mid)
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
@@ -471,6 +618,11 @@ class Modules:
             if dest.exists():
                 shutil.rmtree(dest, ignore_errors=True)
             shutil.move(str(staging), str(dest))
+            for name, text in keep.items():
+                try:
+                    (dest / name).write_text(text, encoding="utf-8")
+                except OSError:
+                    pass
             clean["path"] = str(dest)
             return True, "", clean
         except Exception as e:  # noqa: BLE001

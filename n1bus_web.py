@@ -222,7 +222,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, p.docker.list())
             if u.path == "/api/modules":
                 mods = self.app["modules"]
-                return self._send(200, {"installed": mods.installed(),
+                inst = mods.installed()
+                # 每一项补上**当前值**：界面要拿声明 + 当前值一起才画得出表单
+                for m in inst:
+                    m["config"] = mods.config(m["id"]) or []
+                return self._send(200, {"installed": inst,
                                         "store": mods.store(),
                                         "dir": str(mods.root)})
             if u.path == "/api/modules/store":
@@ -441,6 +445,29 @@ class Handler(BaseHTTPRequestHandler):
                 res["route_error"] = "模块已装好，但页面路由没同步：%s" % c_detail
             self.app["audit"].write("module.route", mid, c_ok,
                                     c_detail or "未配置 Caddy 同步", ip)
+            return self._send(200 if res["ok"] else 500, res)
+        if u.path == "/api/modules/config":
+            b = self._json_body()
+            mid = (b.get("id") or "").strip()
+            mods = self.app["modules"]
+            ok, err, saved = mods.save_config(mid, b.get("values") or {})
+            self.app["audit"].write("module.config", mid or "(空)", ok,
+                                    err or ("已写入 %d 项" % len(saved)), ip)
+            if not ok:
+                return self._send(400, {"ok": False, "error": err})
+            res = {"ok": True, "saved": saved}
+            # 配置写进 .env 只是第一步，容器得用上新值：`up -d` 会重建环境变量有
+            # 变化的那些容器。没有 compose 的模块（纯页面）跳过这一步。
+            meta = {m["id"]: m for m in mods.installed()}.get(mid) or {}
+            if meta.get("compose"):
+                r = run_action("module.install", {"id": mid}, ip,
+                               self.app["probe"].audit,
+                               dry=not self.app["probe"].real)
+                detail = r.get("detail") or r.get("error") or ""
+                res["apply"] = {"ok": bool(r.get("ok")), "detail": detail}
+                if not r.get("ok"):
+                    res["ok"] = False
+                    res["error"] = "配置已保存，但容器没重建：%s" % detail
             return self._send(200 if res["ok"] else 500, res)
         if u.path == "/api/modules/uninstall":
             mid = (self._json_body().get("id") or "").strip()
