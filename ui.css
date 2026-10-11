@@ -536,6 +536,12 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 .dot-tag.bad::before{background:var(--bad);box-shadow:0 0 0 3px rgba(240,68,56,.14)}
 .dot-tag.info::before{background:var(--accent);box-shadow:0 0 0 3px rgba(43,127,255,.14)}
 .dot-tag.mute::before{background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
+/* 审计记录的「对象与说明」是自由文本 —— docker 的报错能有一百多字。不限宽时它会把
+   整张表撑到 700px 宽（比前四列加起来还宽），并让单条记录占三行高，200 条翻都翻不动。
+   这里限宽 + 单行省略，全文进 title（hover 即见）。 */
+.audit-note{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 窄屏再收一档：手机上没有 hover，但至少别让一行变成一屏 */
+@media (max-width:640px){.audit-note{max-width:150px}}
 /* 窄屏下的状态列。
    手机上这一列只给得出约 100px，而「运行（active / running）」光文字就要 152px ——
    无论怎么排都会被 ellipsis 切掉尾巴（表现成「运行（active / run...」），反倒像坏了。

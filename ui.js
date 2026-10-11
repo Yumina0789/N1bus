@@ -2032,10 +2032,10 @@ async function loadAudit(){
     const other = [x.target, x.detail].filter(Boolean).join(" · ");
     return `<tr>
       <td class="mono hint">${esc(String(x.ts || "").slice(5, 16))}</td>
-      <td class="mono">${esc(x.action || "")}</td>
-      <td class="mono">${esc(x.ip)}</td>
+      <td class="mono cell-main">${esc(x.action || "")}</td>
+      <td class="mono cell-mini">${esc(x.ip)}</td>
       <td>${x.ok ? dot("ok", "成功") : dot("bad", "失败")}</td>
-      <td class="hint" style="white-space:normal">${esc(other || "—")}</td></tr>`;
+      <td class="hint audit-note"${other ? ` title="${esc(other)}"` : ""}>${esc(other || "—")}</td></tr>`;
   }).join("") || '<tr><td colspan="5" class="empty">没有匹配的记录</td></tr>';
 }
 
