@@ -127,6 +127,19 @@ ok(any(re.search(r"ACTIONS\s*=\s*\{", s) for s in srcs.values()),
    "白名单动作表存在（n1bus_actions.py）")
 ok(bool(re.search(r"0o600|0o?600", all_src)), "token 文件按 600 权限写")
 
+print("== 安装清单 ==")
+# install.sh 的 SRC_FILES 必须与磁盘上的源码一一对应。加模块时忘了改它，
+# 装机就会 404 —— 2026-10 迁移时踩过一次（当时是 glob 在空目录里不展开），
+# 回滚了一轮。放在这里，改成红的总比在服务器上红好。
+_sh = (ROOT / "install.sh").read_text(encoding="utf-8")
+_m = re.search(r'^SRC_FILES="([^"]+)"', _sh, re.M)
+_listed = set(_m.group(1).split()) if _m else set()
+_on_disk = {p.name for p in ROOT.glob("n1bus*.py")} | {"ui.html", "ui.css", "ui.js"}
+_diff = sorted(_listed ^ _on_disk)
+ok(bool(_m), "install.sh 里有 SRC_FILES 清单")
+ok(_listed == _on_disk,
+   "SRC_FILES 与磁盘上的源码一一对应：%s" % ("、".join(_diff) if _diff else "一致（%d 个文件）" % len(_listed)))
+
 print()
 if fails:
     print("失败 %d 项：" % len(fails))

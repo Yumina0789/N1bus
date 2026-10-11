@@ -91,10 +91,14 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# 源码清单。**不要改成 glob**：这个脚本常被 `curl … | bash` 或从任意目录执行，
+# 那时 $SCRIPT_DIR 里没有这些文件，glob 匹配不到就**不展开**，会把字面量
+# "n1bus*.py" 当成文件名去请求，结果 404（2026-10 迁移时踩过，回滚了一次）。
+# 代价是加模块要回来改这里 —— 由 tools/check.py 的「清单一致性」检查兜住。
+SRC_FILES="n1bus.py n1bus_util.py n1bus_cache.py n1bus_audit.py n1bus_files.py n1bus_actions.py n1bus_system.py n1bus_security.py n1bus_probe.py n1bus_tasks.py n1bus_kms.py n1bus_web.py ui.html ui.css ui.js"
+
 echo "==> 取源码"
-# 源码按域拆在 n1bus_*.py 里（见 docs/modules.md），前端拆成骨架 + css + js。
-# 用 glob 而不是逐个列：以后再加一个 n1bus_xxx.py 不必回来改这里两次。
-for f in n1bus*.py ui.html ui.css ui.js; do
+for f in $SRC_FILES; do
   if [ -f "$SCRIPT_DIR/$f" ]; then
     cp -f "$SCRIPT_DIR/$f" "$WORK/$f"
   else
@@ -107,7 +111,7 @@ done
 echo "==> 安装到 $PREFIX"
 mkdir -p "$PREFIX" "$DATA_DIR"
 chmod 700 "$DATA_DIR"
-for f in n1bus*.py ui.html ui.css ui.js; do
+for f in $SRC_FILES; do
   # 留上一份：升级出问题能立刻回滚
   [ -f "$PREFIX/$f" ] && cp -f "$PREFIX/$f" "$PREFIX/$f.bak"
   install -m 0644 "$WORK/$f" "$PREFIX/$f"
