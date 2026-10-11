@@ -2054,12 +2054,28 @@ function moduleIcon(m){
   return "i-plug";            // 图标集里没有就退回通用图标，绝不加载外部 SVG
 }
 
-/* 把已装模块的按钮与页面补齐。每次全部重建：卸载之后按钮与 iframe 必须一起消失。 */
+/* 把已装模块的按钮与页面补齐。列表变了就整体重建：卸载之后按钮与 iframe 必须一起消失。
+
+   列表**没变**时原地不动 —— 重建会换掉 iframe，等于把模块自己的页面整个重载一遍。
+   dsh 那种重型 SPA 首次加载要十几秒，正在跑的会话也跟着断；而 `module.*` 动作之后
+   都会刷一次模块列表（见 ACTION_RELOAD），点一次「启动」不该顺带把页面重载掉。 */
+let MODSNAP = "";        // 上次渲染用的列表指纹
+let MODFOCUS = "";       // 当前处于「铺满整页」的模块 id，空串表示没有
+function moduleSnap(list){
+  return JSON.stringify(list.map(m => [
+    m.id, m.version, (m.page && m.page.url) || "", !!(m.page && m.page.entry),
+    (m.config || []).map(c => c.key + "=" + c.value).join(","),
+  ]));
+}
 function syncModuleViews(list){
   const nav = document.getElementById("subnav-ext");
   const host = document.getElementById("extMods");
   const anchor = document.getElementById("extStoreBtn");
   if(!nav || !host || !anchor) return;
+  const snap = moduleSnap(list);
+  if(snap === MODSNAP) return;                  // 与上次一样：视图原地不动
+  MODSNAP = snap;
+  if(MODFOCUS) toggleModuleFocus(MODFOCUS, false);   // 重建之前先把全屏收了
   host.innerHTML = "";
   for(const b of Array.from(nav.querySelectorAll("button[data-dyn]"))) b.remove();
   SUBS.ext = ["store"];
@@ -2096,6 +2112,9 @@ function syncModuleViews(list){
       (dyn ? '<button class="act ghost mini" onclick="loadModuleEntry(\'' + esc(mid) + '\')">' +
              '<svg class="ico"><use href="#i-restart"/></svg>重新获取入口</button>' : "") +
       '<span class="grow"></span>' +
+      '<button class="act ghost mini" id="modFull-' + esc(mid) + '" title="铺满整页（Esc 退出）" ' +
+      'onclick="toggleModuleFocus(\'' + esc(mid) + '\')">' +
+      '<svg class="ico"><use href="#i-expand"/></svg>全屏</button>' +
       '<button class="act ghost mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
       '<svg class="ico"><use href="#i-x-circle"/></svg>卸载</button>' +
       '</div>' +
@@ -2111,6 +2130,35 @@ function syncModuleViews(list){
     if(dyn) loadModuleEntry(mid);
   }
 }
+
+/* 把一个模块的「全屏」按钮画成对应状态。不碰 body 的类 —— 那由 toggleModuleFocus
+   统一管，免得两处切换互相打架。 */
+function paintModuleFocus(mid, on){
+  const btn = document.getElementById("modFull-" + mid);
+  if(!btn) return;
+  btn.innerHTML = on
+    ? '<svg class="ico"><use href="#i-collapse"/></svg>退出全屏'
+    : '<svg class="ico"><use href="#i-expand"/></svg>全屏';
+  btn.title = on ? "退出全屏（Esc）" : "铺满整页（Esc 退出）";
+  // 全屏时按钮变实心：它是这一刻唯一能把外壳变回来的控件，得让人一眼找到
+  btn.classList.toggle("ghost", !on);
+}
+
+/* 把模块页面铺满整页。
+   刻意**不用**浏览器的 Fullscreen API —— 它要用户手势授权，还会把整个窗口切出去；
+   这里只是「收起外壳、把这张卡片撑满当前页面」，Esc 或工具条上那个按钮就能复原。
+   用「隐藏外围 + 撑满」而不是 position:fixed：后者会被祖先的 backdrop-filter /
+   transform 形成的包含块影响，覆盖范围算不准（旧版 Harness 子视图留下的经验）。 */
+function toggleModuleFocus(mid, on){
+  const next = (typeof on === "boolean") ? on : MODFOCUS !== mid;
+  if(MODFOCUS) paintModuleFocus(MODFOCUS, false);   // 先把手上的那个收干净
+  MODFOCUS = next ? mid : "";
+  document.body.classList.toggle("mod-focusing", next);
+  if(next) paintModuleFocus(mid, true);
+}
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && MODFOCUS) toggleModuleFocus(MODFOCUS, false);
+});
 
 /* 模块声明的可配置项。
    面板只负责收值与交回后端 —— 校验一律在后端做（值最终会进 .env、被 compose 插值），
@@ -2412,6 +2460,9 @@ function viewLabel(main, sub){
 function showView(main, sub, fromUser){
   if(fromUser) viewPinned = true;
   curTab = main;
+  // 离开当前视图时才退出模块全屏（同一个视图原地重入不算离开）—— 否则切走之后
+  // 外壳还收着，用户会以为界面坏了
+  if(MODFOCUS && !(main === "ext" && sub === MODFOCUS)) toggleModuleFocus(MODFOCUS, false);
   // 子视图：先把这一页当前该看哪个确定下来（每页各记各的），再只显示它、隐藏其余
   const subs = SUBS[main];
   if(subs){

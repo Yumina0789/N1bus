@@ -239,6 +239,30 @@ button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)
   border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .mod-frame + .hint{margin-top:8px}
 
+/* ---------- 模块页：铺满整页（工具条上的「全屏」） ---------- */
+/* 刻意不用浏览器的 Fullscreen API —— 它要用户手势授权，还会把整个窗口切出去；
+   这里只是「收起外壳、把模块那张卡片撑满当前页面」，Esc 或工具条按钮即可复原。
+   用「隐藏外围 + 撑满」而不是 position:fixed：后者会被祖先的 backdrop-filter /
+   transform 形成的包含块影响，覆盖范围算不准。 */
+body.mod-focusing{overflow:hidden}
+/* 外壳全收起。子导航也要收 —— 它常驻约 45px，不藏起来就谈不上铺满。 */
+body.mod-focusing .side,
+body.mod-focusing .topbar,
+body.mod-focusing .subnav{display:none!important}
+body.mod-focusing main{padding:0}
+/* 只留当前可见的那一个模块视图（其余都是 .hidden），让它和里面的 iframe 一起撑满。
+   高度给 100vh 而不是 100%：.shell 的高度靠 min-height 撑着，父级链给不出确定高度，
+   百分比会退化成 auto（上面 .mod-frame 那条注释说的就是同一个坑）。 */
+body.mod-focusing .subview:not(.hidden){height:100vh}
+body.mod-focusing .subview:not(.hidden)>.panel{height:100%;margin:0;padding:8px 8px 0;
+  display:flex;flex-direction:column;border:none;border-radius:0;box-shadow:none;
+  background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+/* 工具条必须留着 —— 退出全屏的按钮在上面。说明与配置折叠块让位给内容。 */
+body.mod-focusing .subview:not(.hidden)>.panel>h2{flex:0 0 auto}
+body.mod-focusing .subview:not(.hidden)>.panel>.hint,
+body.mod-focusing .subview:not(.hidden)>.panel>details{display:none}
+body.mod-focusing .mod-frame{flex:1 1 auto;height:auto;min-height:0;border-radius:8px 8px 0 0}
+
 button.act.warn{background:var(--card);color:var(--warn);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.warn:hover{color:#fff;background:var(--warn);border-color:var(--warn)}
 button.act:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
