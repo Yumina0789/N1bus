@@ -316,6 +316,10 @@ button.act.ico-only .ico{width:15px;height:15px}
 .fm-menu button:hover{background:var(--accent-weak);color:var(--accent)}
 .fm-menu button.danger{color:var(--bad)}
 .fm-menu button.danger:hover{background:rgba(240,68,56,.1);color:var(--bad)}
+/* 操作列收缩到内容宽。auto 布局里它最容易被撑开，留出一大片空白不说，还把
+   「名称」列挤窄 —— 行内现在只剩两三个图标按钮，没理由再占那么宽。 */
+table:has(#fmBody) th:last-child,
+table:has(#fmBody) td:last-child{width:1%}
 /* 第二行（新建/上传 + 右侧条目数）与面包屑。间距取 12px，和 .panel 里
    其它块的节奏一致（概览页的块间距是 14px，这里元素更密，用 12px 不至于散）。 */
 .fm-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}

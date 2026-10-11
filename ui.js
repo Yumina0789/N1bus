@@ -1250,9 +1250,13 @@ function fmMoreOpen(ev, key){
   // 先显示再量尺寸：贴底时向上翻，贴右时向左收
   const r = ev.currentTarget.getBoundingClientRect();
   const h = box.offsetHeight, w = box.offsetWidth;
-  box.style.top = (r.bottom + 6 + h > window.innerHeight
+  // 用 clientWidth/Height 而不是 innerWidth/Height —— 后者在这页面里被横向溢出的
+  // 内容带偏过：实测算出 x=1473，而视口只有 1440，菜单整个跑到屏幕外。
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  box.style.top = (r.bottom + 6 + h > vh
     ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
-  box.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  box.style.left = Math.max(8, Math.min(r.right - w, vw - w - 8)) + "px";
 }
 document.addEventListener("click", fmMoreClose);
 document.addEventListener("keydown", e => { if(e.key === "Escape") fmMoreClose(); });
