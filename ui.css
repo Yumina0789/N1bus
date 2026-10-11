@@ -8,8 +8,8 @@
    判据是「进这个页面的人，第一眼需不需要它」：
 
    · 默认展开 —— 属于"当前状态快照"、内容短（键值表或几行统计）、看着它才有用的：
-       概览：磁盘明细 / 进程与服务 / 登录失败来源
-       安全：当前防护 / 失败来源排行 / 被猜用户名
+       概览：磁盘明细 / 进程与服务 / SSH 封禁来源
+       安全：当前防护 / 封禁来源排行 / 被猜用户名
        系统：系统清理 / 备份与恢复 / 文件浏览 / 网络 / 开机自启 / 系统设置 / 磁盘与挂载
        设置：修改密码
    · 默认折叠 —— 需要主动查看的明细、日志、原始输出，或内容在持续变化的：
@@ -232,7 +232,7 @@ button.act.ghost{background:var(--card);color:var(--dim);border-color:var(--line
 button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);background:var(--card)}
 button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
-/* 模块页面：模块自己的 UI 以同源 iframe 嵌入（本体不代理它的流量，也不替它认证）。
+/* 模块页面：模块自己的 UI 以同源 iframe 嵌入（面板不代理它的流量，也不替它认证）。
    用确定的 calc 高度而不是父级 flex/百分比：移动端的 flex 链给不出「确定高度」，
    百分比会退化成 auto，iframe 就只剩 min-height（实测手机端仅 340×360）。 */
 .mod-frame{display:block;width:100%;height:calc(100vh - 240px);min-height:360px;
@@ -442,10 +442,17 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
                    box-shadow:0 4px 14px rgba(240,68,56,.26)}
 .ask.danger #askOk:hover{box-shadow:0 6px 18px rgba(240,68,56,.34)}
 
-/* 状态只用颜色表示：一个小圆点（19px 触摸区，方便长按）；文字在 data-full 里 */
-.dot-tag{display:inline-block;width:19px;height:19px;position:relative;vertical-align:middle}
+/* 状态标：色点 + 文字。
+   原先只画一颗 19px 的圆点、把文字塞进 data-full，状态列在表格里就只剩一颗豆子 ——
+   不悬停/不长按气泡，分不出「已封禁」和「未封禁」、「成功」和「失败」。
+   现在文字由 ::after 取 attr(data-full) 直接渲染：dot() 的调用点一个都不用改，
+   过长时截断加省略号，完整内容仍在气泡里。 */
+.dot-tag{display:inline-block;position:relative;vertical-align:middle;
+         height:19px;line-height:19px;padding-left:19px;max-width:13em;
+         text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot-tag::before{content:"";position:absolute;left:4px;top:4px;width:11px;height:11px;
                  border-radius:50%;background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
+.dot-tag::after{content:attr(data-full);font-size:12px;margin-left:2px}
 .dot-tag.ok::before{background:var(--ok);box-shadow:0 0 0 3px rgba(22,179,100,.14)}
 .dot-tag.warn::before{background:var(--warn);box-shadow:0 0 0 3px rgba(247,144,9,.14)}
 .dot-tag.bad::before{background:var(--bad);box-shadow:0 0 0 3px rgba(240,68,56,.14)}

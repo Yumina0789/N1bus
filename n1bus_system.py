@@ -322,6 +322,8 @@ class Ports:
                 "error": err.strip()[:200] if code != 0 else ""}
 
     def established(self, limit=40):
+        if not shutil.which("ss"):
+            return {"available": False, "hint": "没有 ss 命令", "connections": []}
         code, out, err = run(["ss", "-tun"], timeout=15)
         rows = []
         for line in out.splitlines()[1:]:
@@ -331,7 +333,8 @@ class Ports:
             rows.append({"proto": f[0], "local": f[4], "peer": f[5]})
             if len(rows) >= limit:
                 break
-        return {"connections": rows, "error": err.strip()[:200] if code != 0 else ""}
+        return {"available": True, "connections": rows,
+                "error": err.strip()[:200] if code != 0 else ""}
 
 
 DISTRO_UNIT_DIRS = ("/lib/systemd/system/", "/usr/lib/systemd/system/", "/run/systemd/")
@@ -478,8 +481,10 @@ def _docker_autostart(names):
         c, pol, _ = run(["docker", "inspect", name, "--format",
                          "{{.HostConfig.RestartPolicy.Name}}"], timeout=20)
         p = pol.strip() if c == 0 else "?"
+        # docker inspect 也失败时 p 是 "?"：这是「查不到」，不是「没有自启策略」。
+        # 用三态把它与 false 区分开，界面才能显示「未知」而不是「不会自启」。
         boxes.append({"name": name, "policy": p or "no",
-                      "autostart": p in ("always", "unless-stopped")})
+                      "autostart": None if p == "?" else p in ("always", "unless-stopped")})
     return boxes
 
 

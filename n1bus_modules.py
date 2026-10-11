@@ -353,7 +353,7 @@ class Modules:
             return False, "商店里没有 %s %s" % (mid, ver), {}
         mc = spec.get("min_core") or ""
         if mc and _ver_tuple(mc) > _ver_tuple(VERSION):
-            return False, "%s %s 要求本体 ≥ %s（当前 %s）" % (mid, ver, mc, VERSION), {}
+            return False, "%s %s 要求面板版本 ≥ %s（当前 %s）" % (mid, ver, mc, VERSION), {}
         url = spec["url"]
         if not url.startswith(("http://", "https://")):
             url = self.store_url + "/" + url.lstrip("/")

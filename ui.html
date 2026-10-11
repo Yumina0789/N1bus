@@ -203,7 +203,7 @@
         </details>
 
         <details class="fold" open>
-          <summary>SSH 失败来源</summary>
+          <summary>SSH 封禁来源</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>来源 IP</th><th class="num">失败次数</th>
               <th class="num">相对量</th></tr></thead><tbody id="ovSec"></tbody></table></div>
@@ -224,9 +224,8 @@
     </div>
   </section>
 
-  <!-- 扩展功能：模块商店。
-       KMS 与 Harness 原先在这里是两个写死的子视图，2026-10 已移除 —— 改由模块系统提供
-       （装上即出现；KMS 侧真正的服务端是容器里的 rs-c4d，不在面板里）。 -->
+  <!-- 模块商店。
+       两个写死的旧子视图 2026-10 已移除 —— 改由模块系统提供（装上即出现）。 -->
   <section id="tab-ext" class="hidden">
     <div class="subnav glass" id="subnav-ext">
       <!-- 内置入口只剩商店；已装模块的按钮由 syncModuleViews() 插在它前面 -->
@@ -383,7 +382,7 @@
   <section id="tab-security" class="hidden">
     <div class="subnav glass" id="subnav-security">
       <button data-sub="guard" class="active"><svg class="ico"><use href="#i-shield"/></svg>防护</button>
-      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>失败来源</button>
+      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>登录审计</button>
       <button data-sub="svcstate"><svg class="ico"><use href="#i-server"/></svg>服务状态</button>
     </div>
 
@@ -477,7 +476,7 @@
 
   <div class="subview hidden" id="sub-faillog">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-ban"/></svg>失败来源 IP 排行
+      <summary><svg class="ico"><use href="#i-ban"/></svg>封禁来源 IP 排行
         <span class="end" id="seIPsMeta"></span></summary>
       <div class="foldbody">
         <div class="row" style="margin-bottom:8px">
@@ -776,7 +775,7 @@
             <svg class="ico"><use href="#i-logout"/></svg>退出我的全部会话</button>
         </div>
         <div class="hint gap-sm">
-          服务 token（<code class="mono">/var/lib/n1bus/n1bus.token</code>）供脚本调用 API 使用，
+          服务 token（<code class="mono">/var/lib/n1bus/n1bus.token</code>）供脚本调用面板接口使用，
           不随账户失效；轮换需在服务器上操作，并 <code class="mono">systemctl restart n1bus</code>。
         </div>
       </div>

@@ -250,7 +250,7 @@ ACTIONS = {
                  "params": {"on": _val_bool}, "danger": False,
                  "argv": lambda p: ["timedatectl", "set-ntp", "true" if p["on"] else "false"],
                  "timeout": 30},
-    "backup.create": {"label": "打包备份", "desc": "tar 打包面板数据 + KMS 数据卷 + Caddy 配置",
+    "backup.create": {"label": "打包备份", "desc": "tar 打包面板数据 + Docker 数据卷 + Caddy 配置",
                       "params": {}, "danger": False,
                       "argv": lambda p: ["tar", "--ignore-failed-read",
                                          "--exclude=var/lib/n1bus/backups",

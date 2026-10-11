@@ -390,7 +390,7 @@ class HostProbe:
             except OSError:
                 pass
         return {"items": items, "archive": arc, "action": "backup.create",
-                "restore_hint": "tar -xzf latest.tar.gz -C /  然后 systemctl restart n1bus"}
+                "restore_hint": "tar -xzf latest.tar.gz -C / && systemctl restart n1bus"}
 
     def files(self, path=""):
         """只读列目录：白名单根之下，最多 200 条。"""
@@ -696,9 +696,17 @@ class HostProbe:
         snap = self.sampler.latest()
         mem = snap.get("mem", {})
         root = next((d for d in snap.get("disk", []) if d.get("mount") == "/"), {})
+
+        # timedatectl 不可用（容器里常见）时，NTP 与同步状态都读不到。
+        # 读不到必须与「读了、结果是 no」区分开：否则界面会把「无法判断」印成「已关闭」，
+        # 用户按这个结论去改配置，改的是一件本来没坏的事。所以这里给三态。
+        def _tri(v):
+            v = (v or "").strip().lower()
+            return True if v == "yes" else (False if v == "no" else None)
+
         return {"timezone": kv.get("Timezone", ""),
-                "ntp": kv.get("NTP", "") == "yes",
-                "ntp_synced": kv.get("NTPSynchronized", "") == "yes",
+                "ntp": _tri(kv.get("NTP")),
+                "ntp_synced": _tri(kv.get("NTPSynchronized")),
                 "rtc_local": kv.get("LocalRTC", "") == "yes",
                 "now": kv.get("TimeUSec", ""),
                 "swaps": swaps, "swap_total": mem.get("swap_total", 0),
@@ -734,7 +742,11 @@ class HostProbe:
                 kind = "virtual"
             else:
                 kind = "physical"
+            # operstate 原样带上：只有它等于 DOWN 才算真的断开。
+            # 回环、bridge、tun 这类接口的 operstate 是 UNKNOWN（内核不实现载波检测），
+            # 若把「不是 UP」一律当成断开，界面就会把 lo 标成「已断开」。
             ifaces.append({"name": name, "up": l.get("operstate") == "UP", "kind": kind,
+                           "operstate": l.get("operstate", ""),
                            "mac": l.get("address", ""), "mtu": l.get("mtu", 0),
                            "addrs": addrs})
         routes = [{"dst": r.get("dst", ""), "gateway": r.get("gateway", ""),
@@ -811,14 +823,14 @@ class _DemoDocker:
     hint = ""
 
     def list(self, with_stats=True):
-        cs = [("kms", "v1m-dash:local", "Up 3 minutes (healthy)", True),
-              ("caddy", "caddy:2-alpine", "Up 26 minutes", True),
+        cs = [("caddy", "caddy:2-alpine", "Up 26 minutes", True),
+              ("redis", "redis:7-alpine", "Up 3 minutes (healthy)", True),
               ("old-test", "alpine:3.19", "Exited (0) 2 days ago", False)]
         out = []
         for name, image, status, running in cs:
             out.append({"id": (name + "0123456789ab")[:12], "name": name, "image": image,
                         "state": "running" if running else "exited", "status": status,
-                        "ports": "1688:1688" if name == "kms" else ("80:80, 443:443" if name == "caddy" else ""),
+                        "ports": "6379:6379" if name == "redis" else ("80:80, 443:443" if name == "caddy" else ""),
                         "running": running,
                         "stats": {"cpu": "0.42%", "mem": "48MiB / 1.94GiB", "mem_pct": "2.4%",
                                   "net": "1.2MB / 860kB", "pids": "3"} if running else {}})
@@ -975,8 +987,8 @@ class _DemoPorts:
     PORTS = [("tcp", "0.0.0.0:22", "22", "sshd", "1371", True),
              ("tcp", "0.0.0.0:80", "80", "docker-proxy", "27973", True),
              ("tcp", "0.0.0.0:443", "443", "docker-proxy", "27979", True),
-             ("tcp", "0.0.0.0:1688", "1688", "docker-proxy", "37348", True),
-             ("tcp", "127.0.0.1:8099", "8099", "docker-proxy", "37355", False),
+             ("tcp", "0.0.0.0:6379", "6379", "docker-proxy", "37348", True),
+             ("tcp", "127.0.0.1:5432", "5432", "postgres", "37355", False),
              ("tcp", "127.0.0.1:8402", "8402", "python3", "41022", False)]
 
     def listening(self):
@@ -987,7 +999,9 @@ class _DemoPorts:
                 "exposed": sum(1 for p in ports if p["exposed"])}
 
     def established(self, limit=40):
-        return {"connections": [{"proto": "tcp", "local": "38.76.207.46:22", "peer": "39.144.169.199:51234"}],
+        return {"available": True,
+                "connections": [{"proto": "tcp", "local": "38.76.207.46:22",
+                                 "peer": "39.144.169.199:51234"}],
                 "error": ""}
 
 
@@ -1125,7 +1139,7 @@ class DemoProbe:
             {"unit": "nginx.service", "state": "disabled", "enabled": False, "protected": False,
              "running": False}],
             "containers": [{"name": "caddy", "policy": "unless-stopped", "autostart": True},
-                           {"name": "kms", "policy": "always", "autostart": True}],
+                           {"name": "redis", "policy": "always", "autostart": True}],
             "note": "ssh / 网络 / docker / 面板等受保护，不允许取消开机自启"}
 
     def sys_settings(self):
@@ -1139,8 +1153,8 @@ class DemoProbe:
         return {"items": [
             {"key": "n1bus", "label": "面板数据（账户 / 审计 / 服务 token）",
              "path": "/var/lib/n1bus", "exists": True, "size": 262144},
-            {"key": "vol:docker_kms-data", "label": "Docker 卷 docker_kms-data",
-             "path": "/var/lib/docker/volumes/docker_kms-data", "exists": True, "size": 1048576},
+            {"key": "vol:docker_redis-data", "label": "Docker 卷 docker_redis-data",
+             "path": "/var/lib/docker/volumes/docker_redis-data", "exists": True, "size": 1048576},
             {"key": "vol:docker_caddy-data", "label": "Docker 卷 docker_caddy-data",
              "path": "/var/lib/docker/volumes/docker_caddy-data", "exists": True, "size": 4194304},
             {"key": "caddy-conf", "label": "Caddy 配置与站点文件",
@@ -1150,26 +1164,26 @@ class DemoProbe:
             "archive": {"exists": True, "path": "/var/lib/n1bus/backups/latest.tar.gz",
                         "size": 1372160, "mtime": "2026-10-09 06:40:00"},
             "action": "backup.create",
-            "restore_hint": "tar -xzf latest.tar.gz -C /  然后 systemctl restart n1bus"}
+            "restore_hint": "tar -xzf latest.tar.gz -C / && systemctl restart n1bus"}
 
     def netinfo(self):
         # 演示数据也带上 kind，好让界面默认收起虚拟网卡这条逻辑也能被看到
         return {"interfaces": [
-            {"name": "eth0", "up": True, "kind": "physical", "mac": "00:16:3e:1f:2a:3b",
-             "mtu": 1500, "addrs": ["10.0.0.4/24", "fe80::1/64"]},
-            {"name": "lo", "up": True, "kind": "loopback", "mac": "00:00:00:00:00:00",
-             "mtu": 65536, "addrs": ["127.0.0.1/8"]},
-            {"name": "docker0", "up": True, "kind": "virtual", "mac": "02:42:1a:2b:3c:4d",
-             "mtu": 1500, "addrs": ["172.17.0.1/16"]},
-            {"name": "veth1a2b3c4d", "up": True, "kind": "virtual", "mac": "aa:bb:cc:dd:ee:01",
-             "mtu": 1500, "addrs": []},
-            {"name": "veth5e6f7a8b", "up": True, "kind": "virtual", "mac": "aa:bb:cc:dd:ee:02",
-             "mtu": 1500, "addrs": []}],
+            {"name": "eth0", "up": True, "kind": "physical", "operstate": "UP",
+             "mac": "00:16:3e:1f:2a:3b", "mtu": 1500, "addrs": ["10.0.0.4/24", "fe80::1/64"]},
+            {"name": "lo", "up": False, "kind": "loopback", "operstate": "UNKNOWN",
+             "mac": "00:00:00:00:00:00", "mtu": 65536, "addrs": ["127.0.0.1/8"]},
+            {"name": "docker0", "up": True, "kind": "virtual", "operstate": "UP",
+             "mac": "02:42:1a:2b:3c:4d", "mtu": 1500, "addrs": ["172.17.0.1/16"]},
+            {"name": "veth1a2b3c4d", "up": True, "kind": "virtual", "operstate": "UP",
+             "mac": "aa:bb:cc:dd:ee:01", "mtu": 1500, "addrs": []},
+            {"name": "veth5e6f7a8b", "up": True, "kind": "virtual", "operstate": "UP",
+             "mac": "aa:bb:cc:dd:ee:02", "mtu": 1500, "addrs": []}],
                 "routes": [{"dst": "default", "gateway": "10.0.0.1", "dev": "eth0", "metric": 100}],
                 "nameservers": ["8.8.8.8", "1.1.1.1"],
                 "resolv_conf": "nameserver 8.8.8.8\nnameserver 1.1.1.1",
                 "docker_published": [{"container": "caddy", "ports": "0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp"},
-                                     {"container": "kms", "ports": "0.0.0.0:1688->1688/tcp"}],
+                                     {"container": "redis", "ports": "0.0.0.0:6379->6379/tcp"}],
                 "note": "Docker 发布的端口不经过 ufw，实际对外暴露 = ufw 放行 ∪ Docker 发布"}
 
     def disks(self):

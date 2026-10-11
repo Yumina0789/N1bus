@@ -55,7 +55,8 @@ new MutationObserver(() => {
   requestAnimationFrame(() => { labelTables(); stripFoldNotes(); _labelPending = false; });
 }).observe(document.body, {childList: true, subtree: true});
 
-/* 状态标只显示简写，完整原文放 data-full：桌面悬停 / 手机按住都能看 */
+/* 状态标：色点 + 文字（文字由 .dot-tag::after 取 data-full 渲染）。
+   data-full 同时供桌面悬停 / 手机按住的气泡使用，放完整原文。 */
 const ACT_CN = {active: "运行", failed: "失败", inactive: "未运行", activating: "启动中",
                 deactivating: "停止中", reloading: "重载中"};
 const SUB_CN = {running: "运行中", exited: "已退出", dead: "已停止", failed: "失败",
@@ -75,6 +76,9 @@ function svcState(u){
   return {t: "停止", c: "mute"};
 }
 function dot(kind, text){
+  /* 文字不再只躺在 data-full 里：那样状态列就只剩一颗色点，
+     不悬停/不长按气泡根本分不出「已封禁」和「未封禁」。渲染交给 CSS，
+     这样 20 多个调用点一个都不用改。 */
   return `<span class="dot-tag ${kind}" data-full="${esc(text)}"></span>`;
 }
 /* 点状态色点时别触发所在行的点击（例如服务表整行可点开详情） */
@@ -247,7 +251,7 @@ async function api(path, opts = {}){
   const text = await r.text();
   if(!text.trim()){
     throw new Error("服务端没有返回内容（HTTP " + r.status + "）。"
-      + "若刚执行过写操作，请先到「日志 · 审计」确认它是否已经生效，再检查服务状态。");
+      + "若刚执行过写操作，请先到「日志与审计」确认它是否已经生效，再检查服务状态。");
   }
   try{
     return JSON.parse(text);
@@ -335,7 +339,9 @@ async function loadOverview(){
     const j = await api("/api/overview");
     const cpu = j.cpu || {}, mem = j.mem || {}, net = j.net || {};
     const sv = j.services || {}, dk = j.docker || {}, se = j.security || {}, pr = j.procs || {};
-    const root = (j.disk || [])[0] || {};
+    // 磁盘列表按容量降序（后端 sorted(-total)），第一项是**最大**的分区，未必是 /。
+    // 概览标的是「根分区占用」，就必须按挂载点取，否则在 / 不是最大分区的机器上读错数。
+    const root = (j.disk || []).find(d => d.mount === "/") || (j.disk || [])[0] || {};
     const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
     const ring = (id, pct) => {
       const el = document.getElementById(id);
@@ -406,7 +412,7 @@ async function loadOverview(){
           <span class="bar" style="width:56px"><i style="width:${p.toFixed(1)}%"></i></span>
           <span class="num ${cls}">${p.toFixed(1)}%</span></div></td>
         <td class="num hint">${ip.toFixed(1)}%</td></tr>`;}).join("") ||
-      '<tr><td colspan="7" class="empty">无数据</td></tr>';
+      '<tr><td colspan="7" class="empty">没有磁盘信息</td></tr>';
 
     drawSpark(j.series || []);
   }catch(e){ if(e.message !== "unauthorized") console.warn(e); }
@@ -437,7 +443,7 @@ function renderOvSec(){
         <span class="bar" style="width:120px">
           <i style="width:${((Number(x.n) || 0) / mx * 100).toFixed(0)}%"></i></span>
       </div></td></tr>`).join("") ||
-    '<tr><td colspan="3" class="empty">无记录</td></tr>';
+    '<tr><td colspan="3" class="empty">没有失败记录</td></tr>';
 }
 
 /* 监控曲线：折线 + 面积填充（带底色的图） */
@@ -577,7 +583,9 @@ async function loadDocker(){
         : `<button class="act mini"
              onclick="runAction('docker.start',{name:'${esc(c.name)}'})">启动</button>`}`},
   ], c => `onclick="openContainer('${esc(c.name)}')" style="cursor:pointer"`,
-     '<tr><td colspan="4" class="empty">无容器（或未安装 docker）</td></tr>');
+     j.available ? '<tr><td colspan="4" class="empty">没有容器</td></tr>'
+                 : '<tr><td colspan="4" class="empty">'
+                   + esc(j.hint || "本机没有 docker 命令") + '</td></tr>');
   if(j.stats_pending) scheduleDockerStats();
 }
 /* 容器日志：可以填 docker logs 自己的参数（--since/--until/--tail/-t）与关键字，
@@ -644,11 +652,11 @@ async function loadImages(){
     {c: "num", h: esc(i.size)},
     {c: "hint", h: esc(i.created)},
     {h: dangling(i) ? dot("warn", "无标签，可清理") : dot("mute", "有标签")},
-  ], null, '<tr><td colspan="6" class="empty">无镜像</td></tr>');
+  ], null, '<tr><td colspan="6" class="empty">没有镜像</td></tr>');
 }
 
 /* --- 安全 ------------------------------------------------------------- */
-/* 失败来源排行默认仅列出**尚未封禁**的来源（已封禁记录会挤占需要处置的行）；
+/* 封禁来源排行默认仅列出**尚未封禁**的来源（已封禁记录会挤占需要处置的行）；
    勾选「显示已封禁的」后展示全量。 */
 let SE_SHOW_ALL = false;
 async function loadSecurity(){
@@ -681,7 +689,7 @@ async function loadSecurity(){
       : `<button class="act ghost mini" onclick="defenderUnban('${esc(x.ip)}','${esc(jail)}')">解除封禁</button>`;
     return `<tr><td class="mono">${esc(x.ip)}</td><td class="num">${num(x.n)}</td>
       <td>${state}</td><td class="num">${act}</td></tr>`;}).join("") ||
-    `<tr><td colspan="4" class="empty">${openIps.length || allIps.length ? "全部来源都已封禁" : "无记录"}</td></tr>`;
+    `<tr><td colspan="4" class="empty">${openIps.length || allIps.length ? "全部来源都已封禁" : "没有失败记录"}</td></tr>`;
   {
     const all = document.getElementById("seIPsAll");
     if(all) all.checked = !!SE_SHOW_ALL;
@@ -692,7 +700,7 @@ async function loadSecurity(){
   }
   document.getElementById("seUsers").innerHTML = (lg.top_users || []).map(x =>
     `<tr><td class="mono">${esc(x.user)}</td><td class="num">${num(x.n)}</td></tr>`).join("") ||
-    '<tr><td colspan="2" class="empty">–</td></tr>';
+    '<tr><td colspan="2" class="empty">暂无被尝试的用户名</td></tr>';
   document.getElementById("seIPsMeta").textContent = allIps.length
     ? ("共 " + allIps.length + " 个来源" + (lg.lines_scanned ? "，扫了 " + num(lg.lines_scanned) + " 行日志" : ""))
     : "";
@@ -704,7 +712,7 @@ async function loadSecurity(){
     (lg.recent || []).length + " 条";
   document.getElementById("seOkBody").innerHTML = (lg.recent_ok || []).map(x =>
     `<tr><td class="mono hint">${esc(x.ts)}</td><td class="mono">${esc(x.user)}</td>
-      <td class="mono">${esc(x.ip)}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">–</td></tr>';
+      <td class="mono">${esc(x.ip)}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">暂无成功登录记录</td></tr>';
   const cfg = ssh.config || {};
   document.getElementById("seSshd").innerHTML =
     Object.keys(cfg).map(k => `<div class="k">${esc(k)}</div><div class="v mono">${esc(cfg[k])}</div>`).join("") +
@@ -721,7 +729,8 @@ async function loadSecurity(){
   const curBanned = jails.reduce(
     (s, j) => s + (parseInt(f2bNum(f2b.detail[j], "Currently banned"), 10) || 0), 0);
   document.getElementById("seF2bMeta").textContent =
-    jails.length ? ("当前封禁 " + num(curBanned) + " 个") : (f2b.available ? "无 jail" : "未安装");
+    jails.length ? ("当前封禁 " + num(curBanned) + " 个")
+                 : (f2b.available ? "无封禁策略" : "未安装");
   document.getElementById("seF2bInfo").innerHTML = jails.length
     ? jails.map(j => {
         const d = f2b.detail[j];
@@ -987,12 +996,17 @@ async function loadNet(){
     {h: esc(p.process || "–")},
     {c: "mono hint", h: esc(p.pid || "–")},
     {h: p.exposed ? dot("warn", "对外（" + p.local + "）") : dot("mute", "仅本机")},
-  ], null, '<tr><td colspan="6" class="empty">无监听端口（或缺 ss）</td></tr>');
+  ], null, L.available ? '<tr><td colspan="6" class="empty">没有监听端口</td></tr>'
+                       : '<tr><td colspan="6" class="empty">'
+                         + esc(L.hint || "没有 ss 命令") + '</td></tr>');
   document.getElementById("ptConn").innerHTML = (C.connections || []).map(c =>
     `<tr><td class="mono">${esc(c.proto)}</td><td class="mono">${esc(c.local)}</td>
       <td class="mono">${esc(c.peer)}</td></tr>`).join("") ||
-    '<tr><td colspan="3" class="empty">无连接</td></tr>';
-  document.getElementById("ptConnMeta").textContent = (C.connections || []).length + " 条（最多 40 条）";
+    (C.available ? '<tr><td colspan="3" class="empty">没有已建立的连接</td></tr>'
+                 : '<tr><td colspan="3" class="empty">'
+                   + esc(C.hint || "没有 ss 命令") + '</td></tr>');
+  document.getElementById("ptConnMeta").textContent = C.available
+    ? ((C.connections || []).length + " 条（最多 40 条）") : "";
 }
 /* --- 通用渲染小工具 --------------------------------------------------- */
 /* 表格增量更新（P8）。
@@ -1022,7 +1036,7 @@ function patchRows(tbody, items, keyOf, cellsOf, attrOf, emptyRow){
   if(!tbody) return;
   if(!items.length){
     tbody.__keys = null;
-    tbody.innerHTML = emptyRow || '<tr><td class="empty">无数据</td></tr>';
+    tbody.innerHTML = emptyRow || '<tr><td class="empty">没有数据</td></tr>';
     return;
   }
   const keys = items.map(keyOf);
@@ -1065,7 +1079,7 @@ function patchRows(tbody, items, keyOf, cellsOf, attrOf, emptyRow){
 /* --- 系统（1Panel 参考切片：清理 / 网络 / 磁盘） ---------------------- */
 /* 键值两列表的通用渲染；pairs 为空时输出一行降级文案 */
 function kvRows(pairs, empty){
-  if(!pairs || !pairs.length) return `<div class="hint">${esc(empty || "无数据")}</div>`;
+  if(!pairs || !pairs.length) return `<div class="hint">${esc(empty || "没有数据")}</div>`;
   return '<div class="kv wide">' + pairs.map(([k, v]) =>
     `<div class="k mono">${esc(k)}</div><div class="v mono">${esc(v == null || v === "" ? "–" : v)}</div>`
   ).join("") + "</div>";
@@ -1111,7 +1125,8 @@ async function loadBackup(){
   if(hint) hint.innerHTML = a.exists
     ? ('恢复方式（在 SSH 中以 root 执行）：<code class="mono">cd /var/lib/n1bus/backups && ' +
        esc(j.restore_hint) + "</code>")
-    : "点击「立即打包」将生成 <code class=\"mono\">latest.tar.gz</code>（面板数据 + KMS 数据卷 + Caddy 配置）。";
+    : "执行「生成备份包」会覆盖服务器上的 <code class=\"mono\">/var/lib/n1bus/backups/latest.tar.gz</code>"
+      + "（面板数据 + Docker 数据卷 + Caddy 配置）。";
 }
 async function downloadBackup(){
   const r = await fetch("/api/backup/file", {headers: {"Authorization": "Bearer " + TOKEN}});
@@ -1159,8 +1174,10 @@ async function loadAutostart(){
   const dk = document.getElementById("sysBootDk");
   if(dk) dk.innerHTML = (j.containers || []).map(c =>
     `<tr><td class="mono">${esc(c.name)}</td>
-      <td class="mono hint" data-full="${esc(c.policy)}">${esc(POL_CN[c.policy] || c.policy)}</td>
-      <td>${c.autostart ? dot("ok", "会自启") : dot("mute", "不会自启")}</td>
+      <td class="mono hint" data-full="${esc(c.policy)}">${
+        esc(c.policy === "?" ? "未知" : (POL_CN[c.policy] || c.policy))}</td>
+      <td>${c.autostart === null ? dot("mute", "无法判断")
+              : c.autostart ? dot("ok", "会自启") : dot("mute", "不会自启")}</td>
       <td class="num"><button class="act ghost mini"
         onclick="runAction('docker.autostart',{name:'${esc(c.name)}',on:${c.autostart ? "false" : "true"}},this)">
         ${c.autostart ? "取消开机自启" : "开机自启"}</button></td></tr>`).join("") ||
@@ -1172,7 +1189,10 @@ async function loadSysSettings(){
   if(!el) return;
   el.innerHTML = kvRows([
     ["时区", j.timezone],
-    ["NTP", j.ntp ? (j.ntp_synced ? "已同步" : "已开启未同步") : "已关闭"],
+    // ntp 为 null 表示本机读不到 timedatectl：这与「已关闭」是两回事，不能印成同一句
+    ["NTP", j.ntp === null || j.ntp === undefined ? "无法读取"
+             : !j.ntp ? "已关闭"
+             : j.ntp_synced === false ? "已开启，未同步" : "已同步"],
     ["swap", (j.swaps || []).length
       ? j.swaps.map(s => s.device + " " + bytes(s.used) + "/" + bytes(s.size)).join("；")
       : (j.swap_total ? bytes(j.swap_used) + "/" + bytes(j.swap_total) : "没有")],
@@ -1559,7 +1579,7 @@ async function loadAlerts(){
   const tbody = document.getElementById("alRecent");
   if(tbody) tbody.innerHTML = (j.recent || []).map(x => `<tr>
     <td class="hint mono">${esc(x.ts)}</td><td class="mono">${esc(ALERT_METRIC_CN[x.metric] || x.metric)}</td>
-    <td class="num">${x.value == null ? "–" : esc(x.value) + " / " + esc(x.threshold)}</td>
+    <td class="num">${x.value == null ? "未上报" : esc(x.value) + " / " + esc(x.threshold)}</td>
     <td>${x.ok ? dot("ok", "已发出") : dot("bad", "发送失败")}
       <span class="hint">${esc((x.detail || "").slice(0, 50))}</span></td></tr>`).join("") ||
     '<tr><td colspan="4" class="empty">暂无告警记录</td></tr>';
@@ -1598,7 +1618,9 @@ async function loadNetInfo(){
   // 所以分两组，虚拟那组默认收起、只留一个数量。
   const phys = ifs.filter(i => i.kind !== "virtual");
   const virt = ifs.filter(i => i.kind === "virtual");
-  const ifRow = i => [i.name + (i.up ? "" : "（已断开）"),
+  // 只有 operstate 明确是 DOWN 才算断开：lo / bridge / tun 的内核 operstate 是 UNKNOWN，
+  // 把「不是 UP」一律当断开，界面就会把回环网卡标成「已断开」。
+  const ifRow = i => [i.name + (i.operstate === "DOWN" ? "（已断开）" : ""),
                       (i.addrs || []).filter(a => a.indexOf("fe80:") !== 0).join(" ") || "无地址"];
   const pub = j.docker_published || [];
   el.innerHTML =
@@ -1678,7 +1700,10 @@ async function loadProcesses(){
     {c: "mono", s: "cursor:pointer", a: `data-full="${esc(p.args)}"`, h: esc(cmdName(p.args))},
     {c: "num", h:
       `<button class="act danger mini" title="结束这个进程（SIGKILL：立即终止，进程无法拦截）"
-        onclick="runAction('process.kill',{pid:'${esc(p.pid)}'})">终止</button>`},  ], null, '<tr><td colspan="8" class="empty">无数据</td></tr>');
+        onclick="runAction('process.kill',{pid:'${esc(p.pid)}'})">终止</button>`},  ], null, ((j.top || {}).error
+      ? '<tr><td colspan="8" class="empty">进程列表读不到：'
+        + esc((j.top || {}).error) + '</td></tr>'
+      : '<tr><td colspan="8" class="empty">没有进程</td></tr>'));
 }
 
 /* --- 日志 ------------------------------------------------------------- */
@@ -1780,7 +1805,7 @@ function optimisticBoot(btn, name, params){
   if(!isBoot && !isDk) return;
   const on = isBoot ? (name === "boot.enable") : !!params.on;
   // 只翻按钮文字。
-  // 不要修改「状态」列 —— 该列由 dot() 绘制的圆点构成，手工改 class 会产生一个
+  // 不要修改「状态」列 —— 该列由 dot() 绘制的色点与文字构成，手工改 class 会产生一个
   // 无人维护的孤立节点：先出现，待真值返回重建 DOM 时又消失，表现为闪烁。
   // 状态列交给 loadAutostart 用后端真值统一重绘。
   btn.textContent = on ? "取消开机自启" : "开机自启";
@@ -2069,7 +2094,7 @@ function syncModuleViews(list){
       '<button class="act ghost mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
       '<svg class="ico"><use href="#i-x-circle"/></svg>卸载</button>' +
       '</div>' +
-      '<div class="hint">页面由模块自己的容器提供，经同源路径嵌入 —— 本体不代理它的流量，也不替它认证。</div>' +
+      '<div class="hint">页面由模块自己的容器提供，面板只做同源嵌入，不代理它的流量，也不替它认证。</div>' +
       '<iframe class="mod-frame" src="' + esc(url) + '" title="' + esc(m.name || mid) + '"></iframe>' +
       '</div>';
     host.appendChild(view);
@@ -2130,8 +2155,8 @@ async function loadModules(forceStore){
 }
 
 async function installModule(mid){
-  if(!await askConfirm("从商店安装 <b>" + esc(mid) + "</b> ？\n\n会下载模块包、按 sha256 校验，" +
-      "然后起它自己的容器。", {title: "安装模块", okText: "安装"})) return;
+  if(!await askConfirm("从商店安装 <b>" + esc(mid) + "</b> ？\n\n会下载模块包并核对发布方给出的校验值，" +
+      "然后启动它自己的容器。", {title: "安装模块", okText: "安装"})) return;
   toast("正在安装 " + esc(mid) + " …（下载与校验需要一点时间）");
   try{
     const j = await api("/api/modules/install", {method: "POST", body: JSON.stringify({id: mid})});
@@ -2186,7 +2211,7 @@ const LOADER_FN = {
    卡片就能平铺展开。参考 1Panel 的做法 —— 它不折叠，靠的是每页只放少量卡片。 */
 const VIEWS = {
   overview: [{k: "overview"}],
-  // —— 扩展功能：模块商店。已装模块各自的页面由 syncModuleViews() 动态建（见下）——
+  // —— 模块商店。已装模块各自的页面由 syncModuleViews() 动态建（见下）——
   store: [{k: "modules"}],
   // —— 运行 ——
   services: [{k: "services"}],
