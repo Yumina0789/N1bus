@@ -2035,7 +2035,7 @@ async function loadAudit(){
       <td class="mono cell-main">${esc(x.action || "")}</td>
       <td class="mono cell-mini">${esc(x.ip)}</td>
       <td>${x.ok ? dot("ok", "成功") : dot("bad", "失败")}</td>
-      <td class="hint audit-note"${other ? ` title="${esc(other)}"` : ""}>${esc(other || "—")}</td></tr>`;
+      <td class="hint"><span class="audit-note"${other ? ` title="${esc(other)}"` : ""}>${esc(other || "—")}</span></td></tr>`;
   }).join("") || '<tr><td colspan="5" class="empty">没有匹配的记录</td></tr>';
 }
 

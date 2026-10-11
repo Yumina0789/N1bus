@@ -537,9 +537,10 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 .dot-tag.info::before{background:var(--accent);box-shadow:0 0 0 3px rgba(43,127,255,.14)}
 .dot-tag.mute::before{background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
 /* 审计记录的「对象与说明」是自由文本 —— docker 的报错能有一百多字。不限宽时它会把
-   整张表撑到 700px 宽（比前四列加起来还宽），并让单条记录占三行高，200 条翻都翻不动。
-   这里限宽 + 单行省略，全文进 title（hover 即见）。 */
-.audit-note{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+   整张表撑到 560px 以上（比前四列加起来还宽），单条记录还会占三行高，200 条翻都翻不动。
+   注意 max-width 必须落在一个**块级**元素上：直接给 td 加会被表格的 auto 布局忽略
+   （实测列宽纹丝不动），所以这里套了一层 span。全文进 title，hover 即见。 */
+.audit-note{display:block;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 窄屏再收一档：手机上没有 hover，但至少别让一行变成一屏 */
 @media (max-width:640px){.audit-note{max-width:150px}}
 /* 窄屏下的状态列。
