@@ -312,244 +312,192 @@ try:
     st, _ = call("/api/accounts/unblock", "POST", {"ip": "不是IP"}, cred=TOKEN)
     ok(st == 400, "非法 IP 被拒")
 
-    print("== 执法器流程（假 Nimbus） ==")
-    sys.path.insert(0, str(ROOT))
-    import http.server
-    import threading
-    import n1bus
+    print("== 自动永久封禁：判定与保护条件 ==")
+    # 该模块的风险集中在「误封」，因此测试重点是「应放过的来源是否被放过」，
+    # 而不仅是「是否执行封禁」。dry=True 只记录不实际执行 ufw。
+    dpath = workdir / "defender.json"
+    d = n1bus_security.Defender(dpath, threshold=10, enabled=True,
+                         skip=n1bus_util.parse_networks(n1bus_security.PRIVATE_NETS),
+                         audit=n1bus_audit.Audit(workdir / "audit3.log"), dry=True)
+    policy = {
+        "top_ips": [{"ip": "198.51.100.7",  "n": 40},    # 超过阈值：应封禁
+                    {"ip": "198.51.100.8",  "n": 10},    # 恰好等于阈值：不封（判据为"超过"）
+                    {"ip": "198.51.100.9",  "n": 500},   # 成功登录过：可信来源，不封
+                    {"ip": "192.168.1.50",  "n": 900},   # 私有网段：不封
+                    {"ip": "198.51.100.10", "n": 800}],  # 已在 ufw 中：不重复封
+        "ok_ips": ["198.51.100.9"],
+    }
+    blk = {"198.51.100.10": "ufw"}
+    got = [c["ip"] for c in d.candidates(policy, blk)]
+    ok(got == ["198.51.100.7"],
+       "仅选出应封禁的来源（等于阈值 / 成功登录过 / 私有网段 / 已封禁 均被排除）：%s" % got)
 
-    seen = []
-    pending = {"ban": [{"ip": "203.0.113.9", "reason": "ip", "detail": "该 IP 今天激活 11 次"}],
-               "unban": [], "limit": 10, "window": "day"}
+    res2 = d.run_once(None, policy, blk)
+    ok(res2["banned"] == ["198.51.100.7"], "执行后仅封禁该来源：%s" % res2["banned"])
+    ok(dpath.exists(), "状态落盘 defender.json")
 
-    class FakeNimbus(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *a):
-            pass
+    d.exempt("198.51.100.7", True)
+    ok(d.candidates(policy, blk) == [], "豁免后该来源不再进入待封名单")
+    d.exempt("198.51.100.7", False)
+    ok([c["ip"] for c in d.candidates(policy, blk)] == ["198.51.100.7"],
+       "移出豁免后该来源重新进入待封名单")
 
-        def _out(self, obj):
-            data = json.dumps(obj).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+    d.unban("198.51.100.7")
+    ok("198.51.100.7" in d.status()["exempt"],
+       "解封会自动写入豁免名单（否则下一轮巡检立即重新封禁）")
 
-        def do_GET(self):
-            self._out(pending if self.path.startswith("/api/enforce/pending") else {"error": "no"})
+    conf2 = d.configure(enabled=True, threshold=1)
+    ok(conf2["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
+       "阈值被限制到下限 %d，避免过低而将正常输错密码的来源计入"
+       % n1bus_security.AUTOBAN_MIN_THRESHOLD)
+    d.configure(threshold=10)
+    d.configure(enabled=False)
+    skip = d.run_once(None, policy, blk)
+    ok(bool(skip.get("skipped")), "停用后一轮直接跳过，不封禁任何来源")
 
-        def do_POST(self):
-            n = int(self.headers.get("Content-Length") or 0)
-            seen.append(json.loads(self.rfile.read(n) or b"{}"))
-            self._out({"ok": True})
+    # 回归：阈值下限必须对**所有**入口生效。configure() 会夹到下限，但 __init__
+    # 直接 int(threshold)，main() 又把 --auto-ban-after 原样传进来 —— 于是
+    # `--auto-ban-after 1` 能让「失败 2 次即永久封禁」，恰好对应 ADR 0010 中承认的
+    # 唯一实际代价（误封风险）。
+    d2 = n1bus_security.Defender(None, threshold=1, enabled=True, dry=True)
+    ok(d2.state["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
+       "__init__ 也把阈值夹到下限 %d（--auto-ban-after 1 不再生效）"
+       % n1bus_security.AUTOBAN_MIN_THRESHOLD)
 
-    fake = http.server.ThreadingHTTPServer(("127.0.0.1", PORT + 1), FakeNimbus)
-    threading.Thread(target=fake.serve_forever, daemon=True).start()
+    print("== 自动永久封禁：在线启用 ==")
+    # 回归：启动巡检线程的代码曾经只写在 main() 的启动路径里，configure() 只改状态。
+    # 于是「启动时是关的、后来在界面上打开」这一路：开关、阈值、待封禁预览都显示
+    # 已启用，巡检却永不执行 —— 只有手动「立即执行一轮」有效，而且不报任何错。
+    # 这里用服务 token（会话在前面的「退出登录」段已作废，服务 token 全程有效）。
+    st, body = call("/api/security", cred=TOKEN)
+    dd = json.loads(body).get("defender") or {}
+    ok(dd.get("enabled") is False and dd.get("running") is False,
+       "启动时是关的：enabled=false 且没有巡检线程")
+    st, body = call("/api/security/defender", "POST", {"enabled": True}, cred=TOKEN)
+    ok(st == 200 and json.loads(body)["config"]["enabled"] is True, "在界面上把它打开")
+    st, body = call("/api/security", cred=TOKEN)
+    dd = json.loads(body).get("defender") or {}
+    ok(dd.get("running") is True, "打开之后巡检线程真的在跑（曾经只改状态、永不巡检）")
+
+    print("== 模块：接口 ==")
+    st, body = call("/api/modules", cred=TOKEN)
+    jm = json.loads(body)
+    ok(st == 200 and isinstance(jm.get("installed"), list),
+       "GET /api/modules 返回已装列表")
+    st_mods = (jm.get("store") or {}).get("modules") or []
+    ok((jm.get("store") or {}).get("available") is True and len(st_mods) == 2,
+       "演示模式的商店清单有两个模块：%s" % [m.get("id") for m in st_mods])
+    ok(all(m.get("versions") for m in st_mods), "商店条目带版本与哈希信息")
+    st, _b = call("/api/modules/store?fresh=1", cred=TOKEN)
+    ok(st == 200, "GET /api/modules/store 可用（?fresh=1 强制回源）")
+    st, _b = call("/api/modules/uninstall", "POST", {"id": "nosuch"}, cred=TOKEN)
+    ok(st == 404, "卸载一个没装的模块 → 404（实际 %s）" % st)
+    st, body = call("/api/action", "POST",
+                    {"name": "module.start", "params": {"id": "nosuch"}}, cred=TOKEN)
+    jx = json.loads(body)
+    ok(jx.get("ok") is False and "没有安装" in (jx.get("error") or ""),
+       "对没装的模块执行 module.start 被校验器挡下：%s" % (jx.get("error"),))
+    st, body = call("/api/modules/install", "POST", {"id": "rsc4d"}, cred=TOKEN)
+    ji = json.loads(body)
+    ok(st == 200 and ji.get("ok") is True,
+       "演示模式安装走通：%s" % (ji.get("error"),))
+    ok((ji.get("module") or {}).get("demo") is True, "演示模式不真下载，带 demo 标记")
+
+    print("== 模块：清单、manifest 与防穿越解包 ==")
+    good, err, mods = NM.check_index({
+        "schema": 1, "registry": "Yumina0789/N1bus-modules",
+        "modules": [{"id": "rsc4d", "name": "KMS", "latest": "1.0.0",
+                     "versions": {"1.0.0": {"url": "packages/rsc4d-1.0.0.tar.gz",
+                                            "sha256": "a" * 64, "size": 10}}}]},
+        NM.STORE_URL)
+    ok(good and mods and mods[0]["id"] == "rsc4d", "合法的 index.json 通过：%s" % (err or "ok"))
+    good, err, _x = NM.check_index({"schema": 2, "modules": []}, NM.STORE_URL)
+    ok(not good, "不认识的 schema 被拒绝：%s" % err)
+    good, err, _x = NM.check_index({"schema": 1, "modules": [
+        {"id": "Bad", "latest": "1.0.0", "versions": {"1.0.0": {
+            "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
+    ok(not good, "非法的模块 id 被拒绝：%s" % err)
+    good, err, _x = NM.check_index({"schema": 1, "modules": [
+        {"id": "rsc4d", "latest": "1.0.0", "versions": {"1.0.0": {
+            "url": "https://evil.example.com/x.tar.gz", "sha256": "a" * 64,
+            "size": 1}}}]}, NM.STORE_URL)
+    ok(not good, "指向别的主机的包地址被拒绝：%s" % err)
+    good, err, _x = NM.check_index({"schema": 1, "modules": [
+        {"id": "rsc4d", "latest": "2.0.0", "versions": {"1.0.0": {
+            "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
+    ok(not good, "latest 不在 versions 里被拒绝：%s" % err)
+
+    _mf = {"schema": 1, "id": "rsc4d", "version": "1.0.0",
+           "compose": {"file": "compose.yml", "project": "n1bus-rsc4d"},
+           "page": {"kind": "iframe", "url": "/m/rsc4d/"}}
+    good, err, _x = NM.check_manifest(dict(_mf))
+    ok(good, "合法的 manifest 通过：%s" % (err or "ok"))
+    bad = dict(_mf, compose={"file": "compose.yml", "project": "evil"})
+    good, err, _x = NM.check_manifest(bad)
+    ok(not good, "compose.project 不是 n1bus-<id> 被拒绝：%s" % err)
+    bad = dict(_mf, page={"kind": "declared", "url": "/m/rsc4d/"})
+    good, err, _x = NM.check_manifest(bad)
+    ok(not good, "page.kind 不是 iframe 被拒绝：%s" % err)
+    bad = dict(_mf, page={"kind": "iframe", "url": "https://evil.example.com/"})
+    good, err, _x = NM.check_manifest(bad)
+    ok(not good, "page.url 不是站内路径被拒绝：%s" % err)
+
+    import io as _io
+    import tarfile as _tar
+
+    def _evil_tar(name, link=False):
+        buf = _io.BytesIO()
+        with _tar.open(fileobj=buf, mode="w:gz") as tf:
+            ti = _tar.TarInfo(name)
+            if link:
+                ti.type = _tar.SYMTYPE
+                ti.linkname = "/etc/passwd"
+                ti.size = 0
+                tf.addfile(ti)
+            else:
+                data = b"x"
+                ti.size = len(data)
+                tf.addfile(ti, _io.BytesIO(data))
+        buf.seek(0)
+        return buf
+
+    dest = workdir / "unpack-test"
+    dest.mkdir(exist_ok=True)
     try:
-        enf = n1bus_security.Enforcer("http://127.0.0.1:%d" % (PORT + 1), "tok", 60,
-                               n1bus_audit.Audit(workdir / "audit2.log"))
-        res = enf.poll_once()
-        ok(any(s.get("action") == "ban" and s.get("ip") == "203.0.113.9" for s in seen),
-           "把「封这个 IP」回报给了面板：%s" % seen)
-        ok(seen and seen[0].get("ok") is False,
-           "本机无法封禁（无 ufw 或非 root）时如实回报失败，不谎报成功")
-        # 仅断言「失败必须带原因」，不断言具体文案 —— 不同环境差异较大
-        ok(res["ok"] is False and bool(res.get("error")),
-           "失败原因如实带回来了：%s" % (res.get("error") or "")[:70])
-        ok((workdir / "audit2.log").exists(), "执法经过写进了审计")
-        pending["ban"] = []
-        pending["unban"] = [{"ip": "203.0.113.9", "reason": "ttl", "detail": "已封满 24 小时"}]
-        seen.clear()
-        enf.poll_once()
-        ok(any(s.get("action") == "unban" for s in seen), "解封请求也会被回报回去")
+        NM.safe_extract(_evil_tar("../escape.txt"), str(dest))
+        ok(False, "含 ../ 的包应当被拒绝")
+    except NM.ModuleError as e:
+        ok(True, "含 ../ 的包被拒绝：%s" % e)
+    try:
+        NM.safe_extract(_evil_tar("link", link=True), str(dest))
+        ok(False, "含符号链接的包应当被拒绝")
+    except NM.ModuleError as e:
+        ok(True, "含符号链接的包被拒绝：%s" % e)
 
-        print("== 自动永久封禁：判定与保护条件 ==")
-        # 该模块的风险集中在「误封」，因此测试重点是「应放过的来源是否被放过」，
-        # 而不仅是「是否执行封禁」。dry=True 只记录不实际执行 ufw。
-        dpath = workdir / "defender.json"
-        d = n1bus_security.Defender(dpath, threshold=10, enabled=True,
-                             skip=n1bus_util.parse_networks(n1bus_security.PRIVATE_NETS),
-                             audit=n1bus_audit.Audit(workdir / "audit3.log"), dry=True)
-        policy = {
-            "top_ips": [{"ip": "198.51.100.7",  "n": 40},    # 超过阈值：应封禁
-                        {"ip": "198.51.100.8",  "n": 10},    # 恰好等于阈值：不封（判据为"超过"）
-                        {"ip": "198.51.100.9",  "n": 500},   # 成功登录过：可信来源，不封
-                        {"ip": "192.168.1.50",  "n": 900},   # 私有网段：不封
-                        {"ip": "198.51.100.10", "n": 800}],  # 已在 ufw 中：不重复封
-            "ok_ips": ["198.51.100.9"],
-        }
-        blk = {"198.51.100.10": "ufw"}
-        got = [c["ip"] for c in d.candidates(policy, blk)]
-        ok(got == ["198.51.100.7"],
-           "仅选出应封禁的来源（等于阈值 / 成功登录过 / 私有网段 / 已封禁 均被排除）：%s" % got)
+    print("== 审计来源 IP：不可信来源的 X-Forwarded-For 必须被忽略 ==")
+    # _client_ip() 只在「直连方本身落在 --allow-ip 网段内」时才读 XFF。
+    # 本实例没有配 --allow-ip，所以任何请求带的 XFF 都必须被丢掉 ——
+    # 否则任意客户端都能把封禁转嫁给别人（登录限流的键同样取自这个函数）。
+    st, _ = call("/api/action", "POST", {"name": "systemd.reload"}, cred=TOKEN,
+                 headers={"X-Forwarded-For": "203.0.113.99"})
+    ok(st == 200, "先触发一次会写审计的动作：HTTP %s" % st)
+    st, body = call("/api/audit", cred=TOKEN)
+    entries = json.loads(body).get("entries") or []
+    acts = [e.get("action") for e in entries[:20]]
+    ips = [e.get("ip") for e in entries[:20]]
+    ok("systemd.reload" in acts, "该动作确实进了审计：%s" % (acts[:6],))
+    ok("203.0.113.99" not in ips, "伪造的 XFF 没出现在审计里：%s" % (ips[:6],))
 
-        res2 = d.run_once(None, policy, blk)
-        ok(res2["banned"] == ["198.51.100.7"], "执行后仅封禁该来源：%s" % res2["banned"])
-        ok(dpath.exists(), "状态落盘 defender.json")
-
-        d.exempt("198.51.100.7", True)
-        ok(d.candidates(policy, blk) == [], "豁免后该来源不再进入待封名单")
-        d.exempt("198.51.100.7", False)
-        ok([c["ip"] for c in d.candidates(policy, blk)] == ["198.51.100.7"],
-           "移出豁免后该来源重新进入待封名单")
-
-        d.unban("198.51.100.7")
-        ok("198.51.100.7" in d.status()["exempt"],
-           "解封会自动写入豁免名单（否则下一轮巡检立即重新封禁）")
-
-        conf2 = d.configure(enabled=True, threshold=1)
-        ok(conf2["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
-           "阈值被限制到下限 %d，避免过低而将正常输错密码的来源计入"
-           % n1bus_security.AUTOBAN_MIN_THRESHOLD)
-        d.configure(threshold=10)
-        d.configure(enabled=False)
-        skip = d.run_once(None, policy, blk)
-        ok(bool(skip.get("skipped")), "停用后一轮直接跳过，不封禁任何来源")
-
-        # 回归：阈值下限必须对**所有**入口生效。configure() 会夹到下限，但 __init__
-        # 直接 int(threshold)，main() 又把 --auto-ban-after 原样传进来 —— 于是
-        # `--auto-ban-after 1` 能让「失败 2 次即永久封禁」，恰好对应 ADR 0010 中承认的
-        # 唯一实际代价（误封风险）。
-        d2 = n1bus_security.Defender(None, threshold=1, enabled=True, dry=True)
-        ok(d2.state["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
-           "__init__ 也把阈值夹到下限 %d（--auto-ban-after 1 不再生效）"
-           % n1bus_security.AUTOBAN_MIN_THRESHOLD)
-
-        print("== 自动永久封禁：在线启用 ==")
-        # 回归：启动巡检线程的代码曾经只写在 main() 的启动路径里，configure() 只改状态。
-        # 于是「启动时是关的、后来在界面上打开」这一路：开关、阈值、待封禁预览都显示
-        # 已启用，巡检却永不执行 —— 只有手动「立即执行一轮」有效，而且不报任何错。
-        # 这里用服务 token（会话在前面的「退出登录」段已作废，服务 token 全程有效）。
-        st, body = call("/api/security", cred=TOKEN)
-        dd = json.loads(body).get("defender") or {}
-        ok(dd.get("enabled") is False and dd.get("running") is False,
-           "启动时是关的：enabled=false 且没有巡检线程")
-        st, body = call("/api/security/defender", "POST", {"enabled": True}, cred=TOKEN)
-        ok(st == 200 and json.loads(body)["config"]["enabled"] is True, "在界面上把它打开")
-        st, body = call("/api/security", cred=TOKEN)
-        dd = json.loads(body).get("defender") or {}
-        ok(dd.get("running") is True, "打开之后巡检线程真的在跑（曾经只改状态、永不巡检）")
-
-        print("== 模块：接口 ==")
-        st, body = call("/api/modules", cred=TOKEN)
-        jm = json.loads(body)
-        ok(st == 200 and isinstance(jm.get("installed"), list),
-           "GET /api/modules 返回已装列表")
-        st_mods = (jm.get("store") or {}).get("modules") or []
-        ok((jm.get("store") or {}).get("available") is True and len(st_mods) == 2,
-           "演示模式的商店清单有两个模块：%s" % [m.get("id") for m in st_mods])
-        ok(all(m.get("versions") for m in st_mods), "商店条目带版本与哈希信息")
-        st, _b = call("/api/modules/store?fresh=1", cred=TOKEN)
-        ok(st == 200, "GET /api/modules/store 可用（?fresh=1 强制回源）")
-        st, _b = call("/api/modules/uninstall", "POST", {"id": "nosuch"}, cred=TOKEN)
-        ok(st == 404, "卸载一个没装的模块 → 404（实际 %s）" % st)
-        st, body = call("/api/action", "POST",
-                        {"name": "module.start", "params": {"id": "nosuch"}}, cred=TOKEN)
-        jx = json.loads(body)
-        ok(jx.get("ok") is False and "没有安装" in (jx.get("error") or ""),
-           "对没装的模块执行 module.start 被校验器挡下：%s" % (jx.get("error"),))
-        st, body = call("/api/modules/install", "POST", {"id": "rsc4d"}, cred=TOKEN)
-        ji = json.loads(body)
-        ok(st == 200 and ji.get("ok") is True,
-           "演示模式安装走通：%s" % (ji.get("error"),))
-        ok((ji.get("module") or {}).get("demo") is True, "演示模式不真下载，带 demo 标记")
-
-        print("== 模块：清单、manifest 与防穿越解包 ==")
-        good, err, mods = NM.check_index({
-            "schema": 1, "registry": "Yumina0789/N1bus-modules",
-            "modules": [{"id": "rsc4d", "name": "KMS", "latest": "1.0.0",
-                         "versions": {"1.0.0": {"url": "packages/rsc4d-1.0.0.tar.gz",
-                                                "sha256": "a" * 64, "size": 10}}}]},
-            NM.STORE_URL)
-        ok(good and mods and mods[0]["id"] == "rsc4d", "合法的 index.json 通过：%s" % (err or "ok"))
-        good, err, _x = NM.check_index({"schema": 2, "modules": []}, NM.STORE_URL)
-        ok(not good, "不认识的 schema 被拒绝：%s" % err)
-        good, err, _x = NM.check_index({"schema": 1, "modules": [
-            {"id": "Bad", "latest": "1.0.0", "versions": {"1.0.0": {
-                "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
-        ok(not good, "非法的模块 id 被拒绝：%s" % err)
-        good, err, _x = NM.check_index({"schema": 1, "modules": [
-            {"id": "rsc4d", "latest": "1.0.0", "versions": {"1.0.0": {
-                "url": "https://evil.example.com/x.tar.gz", "sha256": "a" * 64,
-                "size": 1}}}]}, NM.STORE_URL)
-        ok(not good, "指向别的主机的包地址被拒绝：%s" % err)
-        good, err, _x = NM.check_index({"schema": 1, "modules": [
-            {"id": "rsc4d", "latest": "2.0.0", "versions": {"1.0.0": {
-                "url": "p.tar.gz", "sha256": "a" * 64, "size": 1}}}]}, NM.STORE_URL)
-        ok(not good, "latest 不在 versions 里被拒绝：%s" % err)
-
-        _mf = {"schema": 1, "id": "rsc4d", "version": "1.0.0",
-               "compose": {"file": "compose.yml", "project": "n1bus-rsc4d"},
-               "page": {"kind": "iframe", "url": "/m/rsc4d/"}}
-        good, err, _x = NM.check_manifest(dict(_mf))
-        ok(good, "合法的 manifest 通过：%s" % (err or "ok"))
-        bad = dict(_mf, compose={"file": "compose.yml", "project": "evil"})
-        good, err, _x = NM.check_manifest(bad)
-        ok(not good, "compose.project 不是 n1bus-<id> 被拒绝：%s" % err)
-        bad = dict(_mf, page={"kind": "declared", "url": "/m/rsc4d/"})
-        good, err, _x = NM.check_manifest(bad)
-        ok(not good, "page.kind 不是 iframe 被拒绝：%s" % err)
-        bad = dict(_mf, page={"kind": "iframe", "url": "https://evil.example.com/"})
-        good, err, _x = NM.check_manifest(bad)
-        ok(not good, "page.url 不是站内路径被拒绝：%s" % err)
-
-        import io as _io
-        import tarfile as _tar
-
-        def _evil_tar(name, link=False):
-            buf = _io.BytesIO()
-            with _tar.open(fileobj=buf, mode="w:gz") as tf:
-                ti = _tar.TarInfo(name)
-                if link:
-                    ti.type = _tar.SYMTYPE
-                    ti.linkname = "/etc/passwd"
-                    ti.size = 0
-                    tf.addfile(ti)
-                else:
-                    data = b"x"
-                    ti.size = len(data)
-                    tf.addfile(ti, _io.BytesIO(data))
-            buf.seek(0)
-            return buf
-
-        dest = workdir / "unpack-test"
-        dest.mkdir(exist_ok=True)
-        try:
-            NM.safe_extract(_evil_tar("../escape.txt"), str(dest))
-            ok(False, "含 ../ 的包应当被拒绝")
-        except NM.ModuleError as e:
-            ok(True, "含 ../ 的包被拒绝：%s" % e)
-        try:
-            NM.safe_extract(_evil_tar("link", link=True), str(dest))
-            ok(False, "含符号链接的包应当被拒绝")
-        except NM.ModuleError as e:
-            ok(True, "含符号链接的包被拒绝：%s" % e)
-
-        print("== 审计来源 IP：不可信来源的 X-Forwarded-For 必须被忽略 ==")
-        # _client_ip() 只在「直连方本身落在 --allow-ip 网段内」时才读 XFF。
-        # 本实例没有配 --allow-ip，所以任何请求带的 XFF 都必须被丢掉 ——
-        # 否则任意客户端都能把封禁转嫁给别人（登录限流的键同样取自这个函数）。
-        st, _ = call("/api/action", "POST", {"name": "systemd.reload"}, cred=TOKEN,
-                     headers={"X-Forwarded-For": "203.0.113.99"})
-        ok(st == 200, "先触发一次会写审计的动作：HTTP %s" % st)
-        st, body = call("/api/audit", cred=TOKEN)
-        entries = json.loads(body).get("entries") or []
-        acts = [e.get("action") for e in entries[:20]]
-        ips = [e.get("ip") for e in entries[:20]]
-        ok("systemd.reload" in acts, "该动作确实进了审计：%s" % (acts[:6],))
-        ok("203.0.113.99" not in ips, "伪造的 XFF 没出现在审计里：%s" % (ips[:6],))
-
-        print("== 单元属性缓存：写操作后必须整批作废 ==")
-        # 这三张表没有 TTL（模块级、进程内）。留下旧值会让界面显示 enabled 而 systemctl
-        # 实际已 disabled —— 表现为「点击开机自启无反应」（该故障出现过）。
-        # 因此动作执行成功后必须整批清空。
-        n1bus_cache.UNIT_STATE_CACHE["x.service"] = "enabled"
-        n1bus_cache.UNIT_PATH_CACHE["x.service"] = "/lib/systemd/system/x.service"
-        n1bus_cache.UNIT_PROBED.add("x.service")
-        n1bus_cache.clear_unit_cache()
-        ok(not n1bus_cache.UNIT_STATE_CACHE and not n1bus_cache.UNIT_PATH_CACHE
-           and not n1bus_cache.UNIT_PROBED, "clear_unit_cache() 清空三张单元属性表")
-    finally:
-        fake.shutdown()
+    print("== 单元属性缓存：写操作后必须整批作废 ==")
+    # 这三张表没有 TTL（模块级、进程内）。留下旧值会让界面显示 enabled 而 systemctl
+    # 实际已 disabled —— 表现为「点击开机自启无反应」（该故障出现过）。
+    # 因此动作执行成功后必须整批清空。
+    n1bus_cache.UNIT_STATE_CACHE["x.service"] = "enabled"
+    n1bus_cache.UNIT_PATH_CACHE["x.service"] = "/lib/systemd/system/x.service"
+    n1bus_cache.UNIT_PROBED.add("x.service")
+    n1bus_cache.clear_unit_cache()
+    ok(not n1bus_cache.UNIT_STATE_CACHE and not n1bus_cache.UNIT_PATH_CACHE
+       and not n1bus_cache.UNIT_PROBED, "clear_unit_cache() 清空三张单元属性表")
 finally:
     proc.terminate()
     try:

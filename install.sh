@@ -17,8 +17,6 @@ PORT="8402"
 BIND="127.0.0.1"
 ALLOW_IP=""
 TOKEN=""
-ENFORCE_URL="${N1BUS_ENFORCE_URL:-}"
-ENFORCE_TOKEN="${N1BUS_ENFORCE_TOKEN:-}"
 REPO_RAW="${N1BUS_REPO_RAW:-https://raw.githubusercontent.com/Yumina0789/N1bus/main}"
 UNINSTALL=0
 PURGE=0
@@ -38,8 +36,6 @@ N1bus 安装脚本：把面板装成宿主机上的 systemd 服务。
   --prefix DIR    安装目录（默认 /opt/n1bus）
   --data-dir DIR  数据目录（默认 /var/lib/n1bus，放 token 与审计日志）
   --token STR     指定 token（默认随机生成）
-  --enforce-url U 从哪个面板拉「该封谁」，例如 http://127.0.0.1:8099（v1m-dash）
-  --enforce-token T  上面那个面板的访问 token（给了才会开启自动封禁）
   --uninstall     停止并移除服务，保留数据与 token
   --purge         连数据目录一起删
   -h, --help      看这段
@@ -54,8 +50,6 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX="${2:?}"; shift 2 ;;
     --data-dir) DATA_DIR="${2:?}"; shift 2 ;;
     --token) TOKEN="${2:?}"; shift 2 ;;
-    --enforce-url) ENFORCE_URL="${2:?}"; shift 2 ;;
-    --enforce-token) ENFORCE_TOKEN="${2:?}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) UNINSTALL=1; PURGE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -128,13 +122,6 @@ chmod 600 "$DATA_DIR/n1bus.token"
 TOKEN="$(cat "$DATA_DIR/n1bus.token")"
 
 echo "==> 写 systemd 单元"
-ENFORCE_ARGS=""
-if [ -n "$ENFORCE_URL" ] && [ -n "$ENFORCE_TOKEN" ]; then
-  ENFORCE_ARGS=" --enforce-url $ENFORCE_URL --enforce-token $ENFORCE_TOKEN"
-  echo "    自动封禁已配置：从 $ENFORCE_URL 拉取待执行列表"
-else
-  echo "    未提供 --enforce-url/--enforce-token，自动封禁已关闭（面板上仍可手动封禁）"
-fi
 ALLOW_ARGS=""
 if [ -n "$ALLOW_IP" ]; then
   ALLOW_ARGS=" --allow-ip $ALLOW_IP"
@@ -149,7 +136,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir $DATA_DIR --token-file $DATA_DIR/n1bus.token$ENFORCE_ARGS$ALLOW_ARGS
+ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir $DATA_DIR --token-file $DATA_DIR/n1bus.token$ALLOW_ARGS
 Restart=always
 RestartSec=3
 User=root

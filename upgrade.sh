@@ -47,8 +47,8 @@ if [ "$CHECK" = "1" ]; then
 fi
 
 # 从现有 systemd 单元里把部署参数捞出来，重装时原样带上。
-# 不这么做的话，install.sh 会按**默认值**重写单元 —— --bind / --allow-ip / --enforce-*
-# 会被静默丢掉，表现为「升级之后反代连不上面板」或「自动封禁莫名关闭」。
+# 不这么做的话，install.sh 会按**默认值**重写单元 —— --bind / --allow-ip / --port
+# 等参数会被静默丢掉，表现为「升级之后反代连不上面板」或「来源白名单失效」。
 ARGS=()
 if [ -f "$UNIT" ]; then
   line="$(grep -m1 '^ExecStart=' "$UNIT" || true)"
@@ -59,7 +59,7 @@ if [ -f "$UNIT" ]; then
   set -- $rest
   while [ $# -gt 0 ]; do
     case "$1" in
-      --port|--bind|--allow-ip|--data-dir|--enforce-url|--enforce-token)
+      --port|--bind|--allow-ip|--data-dir|--store-url)
         ARGS+=("$1" "$2"); shift 2 ;;
       *) shift ;;
     esac

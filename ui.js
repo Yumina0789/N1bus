@@ -736,25 +736,7 @@ async function loadSecurity(){
     || (f2b.hint || "（没有 fail2ban 状态）");
   renderDefender(j.defender);
   renderPorts(j.allowed);
-  try{
-    const ef = await api("/api/enforce");
-    const last = ef.last || {};
-    document.getElementById("seEnf").innerHTML = [
-      ["状态", ef.enabled ? "运行中" : "未启用"],
-      // 不显示内部服务地址与命令行参数名：那是部署细节，对使用者没有意义
-      ["决策来源", ef.enabled ? "KMS 面板的限流策略" : "未配置"],
-      ["检查间隔", ef.interval ? dur(ef.interval) : "–"],
-      ["最近一轮", last.ts ? new Date(last.ts * 1000).toLocaleString("zh-CN") : "尚未执行"],
-      ["本轮封禁", (last.banned || []).join("、") || "无"],
-      ["本轮解封", (last.unbanned || []).join("、") || "无"],
-      ["结果", last.ok === false ? "失败：" + (last.error || "") : (last.ts ? "正常" : "–")],
-    ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v mono">${esc(v)}</div>`).join("") +
-      (ef.note ? `<div class="k"></div><div class="v warn-v">${esc(ef.note)}</div>` : "");
-  }catch(e){ /* 老版本后端没有这个接口，忽略 */ }
-  try{
-    const acc = await api("/api/accounts");
-    renderGuard(acc.guard);
-  }catch(e){ /* 拉不到账户信息就不显示这一段 */ }
+  renderGuard((await api("/api/accounts").catch(() => ({}))).guard);
 }
 
 /* --- 防火墙端口 -------------------------------------------------------- */

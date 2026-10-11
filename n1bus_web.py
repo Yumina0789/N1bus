@@ -325,8 +325,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, p.netinfo())
             if u.path == "/api/disks":
                 return self._send(200, p.disks())
-            if u.path == "/api/enforce":
-                return self._send(200, self.app["enforcer"].status())
             if u.path == "/api/accounts":
                 return self._send(200, {"users": self.app["accounts"].listing(),
                                         "me": self._user(),

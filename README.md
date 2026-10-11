@@ -161,8 +161,8 @@ cd /opt/n1bus-src && sudo bash upgrade.sh --check  # 只看有没有新版本，
 ```
 
 `upgrade.sh` 会**从现有的 systemd 单元里把部署参数捞出来原样带上**（`--bind`、`--allow-ip`、
-`--enforce-url`、`--enforce-token`、`--port`、`--data-dir`）。不这么做的话，重装会按默认值
-重写单元，那些参数被静默丢掉 —— 表现为「升级之后反向代理连不上面板」或者「自动封禁莫名关闭」。
+`--port`、`--data-dir`、`--store-url`）。不这么做的话，重装会按默认值
+重写单元，那些参数被静默丢掉 —— 表现为「升级之后反向代理连不上面板」。
 
 已经用上面 `curl` 方式装好的机器随时可以迁过来：`/opt/n1bus` 是部署目录、
 `/opt/n1bus-src` 是仓库，互不干扰；升级时旧文件照旧自动留 `.bak`。
@@ -244,9 +244,6 @@ python3 n1bus.py --mode demo --port 8402
 --token-file PATH    默认 <data-dir>/n1bus.token
 --token STR          直接指定 token，或用环境变量 N1BUS_TOKEN
 --interval SEC       采样间隔，默认 2
---enforce-url U      从哪个面板拉「该封谁」（例如 http://127.0.0.1:8099 的 v1m-dash）
---enforce-token T    上面那个面板的 token；给了才会开启自动封禁
---enforce-interval N 拉取间隔，默认 60 秒，最小 10；0 = 关闭
 --auto-ban on|off    自动永久封禁，默认 on（环境变量 N1BUS_AUTO_BAN）
 --auto-ban-after N   累计失败次数超过该值即永久封禁，默认 10，最小 3（N1BUS_AUTO_BAN_AFTER）
 --auto-ban-interval N 巡检间隔，默认 300 秒，最小 30（N1BUS_AUTO_BAN_INTERVAL）
@@ -257,18 +254,14 @@ python3 n1bus.py --mode demo --port 8402
 自动封禁执行的仍然是 `ACTIONS` 表里的白名单动作（`ufw.deny` / `ufw.undeny`），
 因此与手动封禁一样会写入审计。
 
-**这里有两条独立的自动封禁机制**，数据源不同，不要混用：
+`--auto-ban*` 组由 **N1bus 自行判定**：扫描 `/var/log/auth.log` 全量记录，累计失败
+超过阈值的来源直接执行 `ufw deny` **永久**封禁，不自动解封。fail2ban 依据「时间窗口内
+的失败次数」判定，对慢速扫描无效（实测某来源被封禁 19 次、累计失败 997 次后仍持续尝试）。
 
-* `--enforce-*` 组**从其他面板拉取决策**（v1m-dash 的 KMS 限流），N1bus 只负责执行，
-  封禁对象由 v1m-dash 决定。
-* `--auto-ban*` 组由 **N1bus 自行判定**：扫描 `/var/log/auth.log` 全量记录，累计失败
-  超过阈值的来源直接执行 `ufw deny` **永久**封禁，不自动解封。fail2ban 依据「时间窗口内
-  的失败次数」判定，对慢速扫描无效（实测某来源被封禁 19 次、累计失败 997 次后仍持续尝试）。
-
-  它**不会自动封禁**两类地址：**成功登录过的来源**（auth.log 中全部 `Accepted` 记录，
-  可信度最高的判据）和私有网段 / `--allow-ip`。放行只能通过面板解封，且解封会
-  **同时写入豁免名单** —— 否则下一轮巡检会依据同一累计次数重新封禁。
-  详见 `docs/adr/0010-recidive-permanent-ban.md`。
+它**不会自动封禁**两类地址：**成功登录过的来源**（auth.log 中全部 `Accepted` 记录，
+可信度最高的判据）和私有网段 / `--allow-ip`。放行只能通过面板解封，且解封会
+**同时写入豁免名单** —— 否则下一轮巡检会依据同一累计次数重新封禁。
+详见 `docs/adr/0010-recidive-permanent-ban.md`。
 
 ## 设计上的几条硬性约束
 

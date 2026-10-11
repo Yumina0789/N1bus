@@ -53,7 +53,7 @@ import n1bus_modules
 from n1bus_modules import Modules
 from n1bus_probe import DemoProbe, HostProbe, Sampler
 from n1bus_security import (AUTOBAN_INTERVAL, AUTOBAN_MIN_THRESHOLD, AUTOBAN_THRESHOLD,
-                            Accounts, Defender, Enforcer, LoginGuard, PRIVATE_NETS)
+                            Accounts, Defender, LoginGuard, PRIVATE_NETS)
 from n1bus_tasks import Alerts, Tasks
 from n1bus_util import VERSION, dedup_nets, expand_binds, now_iso, parse_networks
 from n1bus_web import Handler
@@ -92,12 +92,6 @@ def main():
     ap.add_argument("--token-file", default="", help="默认 <data-dir>/n1bus.token")
     ap.add_argument("--data-dir", default="/var/lib/n1bus", help="token 与审计日志的目录")
     ap.add_argument("--interval", type=float, default=2.0, help="采样间隔（秒）")
-    ap.add_argument("--enforce-url", default=os.environ.get("N1BUS_ENFORCE_URL", ""),
-                    help="从哪个面板拉「该封谁」，例如 http://127.0.0.1:8099（v1m-dash）")
-    ap.add_argument("--enforce-token", default=os.environ.get("N1BUS_ENFORCE_TOKEN", ""),
-                    help="上面那个面板的访问 token")
-    ap.add_argument("--enforce-interval", type=int, default=60,
-                    help="拉取间隔（秒），最小 10；0 表示关闭自动封禁")
     ap.add_argument("--auto-ban", choices=["on", "off"],
                     default=os.environ.get("N1BUS_AUTO_BAN") or "on",
                     help="重复失败来源永久封禁：累计失败次数超过 --auto-ban-after 的来源"
@@ -147,9 +141,6 @@ def main():
     sampler = Sampler(interval=args.interval, fake=(args.mode == "demo"))
     audit = Audit(data_dir / "audit.log")
     accounts = Accounts(data_dir / "accounts.json")
-    enforcer = Enforcer(args.enforce_url, args.enforce_token, args.enforce_interval, audit)
-    if args.mode == "demo" or not args.enforce_interval:
-        enforcer.enabled = False
     # 排除网段 = 私有网段 + 面板访问白名单。两者都不应被自动封禁，尤其是 --allow-ip：
     # 它是管理员访问面板所使用的来源。
     defender = Defender(data_dir / "defender.json", threshold=args.auto_ban_after,
@@ -162,7 +153,7 @@ def main():
     tasks = Tasks(data_dir, audit, probe)
     alerts = Alerts(data_dir, audit, probe)
     app = {"probe": probe, "sampler": sampler, "token": token, "mode": args.mode,
-           "started": now_iso(), "enforcer": enforcer, "defender": defender,
+           "started": now_iso(), "defender": defender,
            "accounts": accounts, "audit": audit,
            "guard": LoginGuard(data_dir / "loginguard.json"),
            "tasks": tasks, "alerts": alerts,
@@ -192,8 +183,6 @@ def main():
     for _, srv in servers[1:]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     sampler.start()
-    if enforcer.enabled:
-        threading.Thread(target=enforcer.loop, daemon=True).start()
     if defender.state["enabled"]:
         defender.start(probe.security)
     tasks.start()
@@ -217,8 +206,6 @@ def main():
         print("  systemd：%s   docker：%s" % (
             "可用" if probe.services.available else "不可用",
             "可用" if probe.docker.available else "不可用"))
-        print("  自动封禁：%s" % ("%s（每 %d 秒拉一次）" % (enforcer.url, enforcer.interval)
-                                 if enforcer.enabled else "关闭"))
         print("  重复失败来源永久封禁：%s" % (
             "开启 —— 累计失败 > %d 次即执行 ufw deny，每 %d 秒巡检一次%s"
             % (defender.state["threshold"], defender.interval,
