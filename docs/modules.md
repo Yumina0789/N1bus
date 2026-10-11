@@ -266,11 +266,16 @@ registry 里若有更高版本，商店提示「可升级」（升级本身下�
 
 | 模块 | 内容 |
 |---|---|
-| **rsc4d** | KMS 服务端。**服务器上已在运行**：容器 `rs-c4d`（镜像 `nimbus:local`），KMS wire 协议端口 `1688/tcp`（发布到 `0.0.0.0`），另有 `8099/tcp` 只发布到 `127.0.0.1`，由 Caddy 以 `adkms.lolicon.fans` 反代。它有自己的界面/接口，因此模块页面走 iframe 即可 |
+| **rsc4d** | KMS 服务端。**服务器上已在运行**：容器 `rs-c4d`（镜像 `nimbus:local`）里由 supervisord 跑两个进程 —— `rs-c4d`（KMS wire 协议，`1688/tcp` 发布到 `0.0.0.0`）与 `nimbus`（原 v1m-dash 的那套面板，`8099/tcp` 只发布到 `127.0.0.1`）。它自带界面，所以模块页面走 iframe 即可 |
 | **harness** | DeepSeek Harness —— 独立容器里的 agent 面板（与 ADR 0008 同一套部署）。**它的入口是动态的**：一次性 token 换 cookie，token 每次启动才生成、只打在容器日志里。而模块系统目前只支持**静态** `page.url` —— 做这个模块之前，得先让 manifest 支持「入口 URL 由本体动态提供」（后端 `/api/dsh` 的能力已经留着） |
 
-RSC4D 上线后，**v1m-dash 与 vlmcsd 退役**，激活记录不迁移（见 ADR 0012）——
-这一步在服务器上**已经完成**。
+> **已知问题（2026-10 在服务器上发现）**：Caddy 里 `adkms.lolicon.fans` 配的是
+> `reverse_proxy kms:8099`，而容器在网络上的名字是 `rs-c4d`（别名里没有 `kms`）——
+> 该域名因此返回 TLS internal error。修法二选一：把 upstream 改成 `rs-c4d:8099`，
+> 或给容器加回 `kms` 别名。**这与 N1bus 无关**，是容器改名时漏掉的一处。
+
+RSC4D 上线后，**vlmcsd 退役**，激活记录不迁移（见 ADR 0012）——
+注意**退役的是 vlmcsd，不是那套面板**：面板（`nimbus`）跟着搬进了 `rs-c4d` 容器继续跑。
 
 ---
 

@@ -16,12 +16,13 @@
 装成宿主机上的一个 systemd 服务，只监听 `127.0.0.1`，对外由反向代理接入。
 *不是*容器中的组件，也不是 v1m-dash 的一部分 —— 两者互不知情。
 
-**v1m-dash** `[已退役]`
-另一个项目：管 vlmcsd（KMS）的容器化面板，容器内 supervisord 的 program 名就是 `v1m-dash`。
-它曾是 N1bus 的 KMS 数据来源（`/api/kms` 的只读数据与写操作转发都指向它）。
-**2026-10 已退役**：服务器上它已不在运行，KMS 那一摊改由容器里的 **rs-c4d**（RSC4D）承担；
-N1bus 里对应的接入层（`n1bus_kms.py`、`/api/kms*`、`--nimbus-*`）也一并删除 ——
-面板不再代取 KMS 数据，将来由 `rsc4d` 模块自带页面。
+**v1m-dash / nimbus** `[已并入 rs-c4d 容器]`
+管 vlmcsd（KMS）的那套面板服务（容器内 supervisord 的 program 名就是 `v1m-dash`，
+运行时进程名是 `nimbus`）。它曾是 N1bus 的 KMS 数据来源（`/api/kms` 的只读数据与写操作转发都指向它）。
+**2026-10 起它不再独占一个容器**：`vlmcsd` 退役、KMS 协议服务端换成 **RSC4D**，
+而那套面板服务（监听 `8099`）被搬进 **`rs-c4d` 容器**里、作为 supervisord 的另一个 program 继续跑。
+N1bus 侧的接入层（`n1bus_kms.py`、`/api/kms*`、`--nimbus-*`）已删除 ——
+面板不再代取 KMS 数据，将来由 `rsc4d` 模块自带页面（iframe 嵌 8099 那套面板）。
 
 **托管机**
 N1bus 所管理的那台 Linux 机器，也就是 N1bus 自己跑着的那台。N1bus 不管别的机器。
