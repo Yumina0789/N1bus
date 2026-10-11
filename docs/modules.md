@@ -269,10 +269,13 @@ registry 里若有更高版本，商店提示「可升级」（升级本身下�
 | **rsc4d** | KMS 服务端。**服务器上已在运行**：容器 `rs-c4d`（镜像 `nimbus:local`）里由 supervisord 跑两个进程 —— `rs-c4d`（KMS wire 协议，`1688/tcp` 发布到 `0.0.0.0`）与 `nimbus`（原 v1m-dash 的那套面板，`8099/tcp` 只发布到 `127.0.0.1`）。它自带界面，所以模块页面走 iframe 即可 |
 | **harness** | DeepSeek Harness —— 独立容器里的 agent 面板（与 ADR 0008 同一套部署）。**它的入口是动态的**：一次性 token 换 cookie，token 每次启动才生成、只打在容器日志里。而模块系统目前只支持**静态** `page.url` —— 做这个模块之前，得先让 manifest 支持「入口 URL 由本体动态提供」（后端 `/api/dsh` 的能力已经留着） |
 
-> **已知问题（2026-10 在服务器上发现）**：Caddy 里 `adkms.lolicon.fans` 配的是
-> `reverse_proxy kms:8099`，而容器在网络上的名字是 `rs-c4d`（别名里没有 `kms`）——
-> 该域名因此返回 TLS internal error。修法二选一：把 upstream 改成 `rs-c4d:8099`，
-> 或给容器加回 `kms` 别名。**这与 N1bus 无关**，是容器改名时漏掉的一处。
+> **已处理（2026-10-11）**：Caddy 里同一个域名 `adkms.lolicon.fans` 曾被定义**两次**
+> （主 `Caddyfile` 里 upstream 写成 `kms:8099`，`caddy-sites/kms-panel.caddy` 里写的是
+> 正确的 `rs-c4d:8099`），因此该域名一直返回 TLS internal error。
+> 现已按用户要求把 **KMS 与 DSH 的反代一并移除**，Caddy 只保留面板本身：
+> `lolicon.fans` → `172.18.0.1:8402`（`caddy-sites/steward.caddy`），
+> 原配置备在同一目录的 `*.bak-*` 里。`adkms.lolicon.fans` 的 DNS 记录还在，
+> 但 Caddy 已不为它服务（要彻底清掉得去 DNS 服务商删记录）。
 
 RSC4D 上线后，**vlmcsd 退役**，激活记录不迁移（见 ADR 0012）——
 注意**退役的是 vlmcsd，不是那套面板**：面板（`nimbus`）跟着搬进了 `rs-c4d` 容器继续跑。
