@@ -107,6 +107,13 @@ def main():
                     or n1bus_modules.STORE_URL,
                     help="模块商店（registry 仓库的 GitHub Pages）地址，默认 %s"
                          % n1bus_modules.STORE_URL)
+    # 模块页面是站内路径（/m/<id>/），由 Caddy 转给模块自己的容器。这两个参数告诉
+    # 面板去哪写这份路由片段、以及向谁要热重载。不配就不做同步 —— 面板不假设
+    # 服务器上一定有 Caddy，也不去猜它的目录在哪。
+    ap.add_argument("--caddy-sites", default=os.environ.get("N1BUS_CADDY_SITES", ""),
+                    help="Caddy 的 sites 目录（宿主路径）；配合 --caddy-container 生效")
+    ap.add_argument("--caddy-container", default=os.environ.get("N1BUS_CADDY_CONTAINER", ""),
+                    help="跑 Caddy 的容器名，例如 caddy")
     args = ap.parse_args()
 
     if args.mode == "demo":
@@ -163,6 +170,8 @@ def main():
            "modules": Modules(root=(data_dir / "modules") if args.mode == "demo"
                                    else n1bus_modules.MODULES_DIR,
                               store_url=args.store_url,
+                              caddy_sites=args.caddy_sites,
+                              caddy_container=args.caddy_container,
                               dry=(args.mode == "demo")),
            "allow_nets": parse_networks(args.allow_ip)}
     Handler.app = app

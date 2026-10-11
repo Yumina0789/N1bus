@@ -220,8 +220,6 @@ class Handler(BaseHTTPRequestHandler):
                                                        int(q.get("lines", ["200"])[0])))
             if u.path == "/api/docker":
                 return self._send(200, p.docker.list())
-            if u.path == "/api/dsh":
-                return self._send(200, p.docker.dsh())
             if u.path == "/api/modules":
                 mods = self.app["modules"]
                 return self._send(200, {"installed": mods.installed(),
@@ -231,6 +229,11 @@ class Handler(BaseHTTPRequestHandler):
                 # 商店清单带 5 分钟缓存；`?fresh=1` 强制回源（界面的「刷新商店」用）
                 return self._send(200, self.app["modules"].store(
                     force=q.get("fresh", ["0"])[0] in ("1", "true", "yes")))
+            if u.path == "/api/modules/entry":
+                # 页面入口每次现取：这类一次性 token 换完 cookie 就作废，
+                # 缓存下来的只会是一个打不开的地址。
+                return self._send(200, self.app["modules"].entry_url(
+                    q.get("id", [""])[0]))
             if u.path == "/api/docker/images":
                 return self._send(200, p.docker.images())
             if u.path == "/api/docker/logs":
@@ -429,6 +432,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not r.get("ok"):
                     res["ok"] = False
                     res["error"] = "包已落盘，但容器没起来：%s" % detail
+            # 页面路由：这是「装上即出现」的最后一环 —— 写 Caddy 片段并热重载。
+            # 失败不回滚模块（容器已经起来了，先用着），但如实报出来。
+            c_ok, c_detail = mods.sync_caddy()
+            if c_detail:
+                res["route"] = {"ok": c_ok, "detail": c_detail}
+            if not c_ok:
+                res["route_error"] = "模块已装好，但页面路由没同步：%s" % c_detail
+            self.app["audit"].write("module.route", mid, c_ok,
+                                    c_detail or "未配置 Caddy 同步", ip)
             return self._send(200 if res["ok"] else 500, res)
         if u.path == "/api/modules/uninstall":
             mid = (self._json_body().get("id") or "").strip()
@@ -448,7 +460,13 @@ class Handler(BaseHTTPRequestHandler):
                                         "容器没摘掉，因此没有删目录：%s" % detail})
             ok, err = mods.remove(mid)
             self.app["audit"].write("module.remove", mid, ok, err or "已移除（数据卷保留）", ip)
-            return self._send(200 if ok else 500, {"ok": ok, "error": err})
+            # 目录已经没了，页面路由也要撤掉 —— 否则 /m/<id>/ 会转到一个不存在的容器
+            c_ok, c_detail = mods.sync_caddy()
+            if not c_ok:
+                return self._send(500, {"ok": False,
+                                        "error": "模块目录已删除，但页面路由没撤掉：%s"
+                                                 % c_detail})
+            return self._send(200, {"ok": ok, "error": err, "route": c_detail})
 
         # --- 自动永久封禁 --------------------------------------------------
         # 策略本身不是系统命令，因此不进入 ACTIONS 表；但实际封禁仍通过 ufw.deny

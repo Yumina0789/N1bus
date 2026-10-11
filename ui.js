@@ -2079,6 +2079,9 @@ function syncModuleViews(list){
     view.className = "subview hidden";
     view.id = "sub-" + mid;
     const url = (m.page && m.page.url) || "";
+    /* page.entry 存在就说明入口地址不是固定的（例如一次性 token 换 cookie 的那类），
+       得在打开页面时现取。没有它就照常直接嵌 page.url。 */
+    const dyn = !!(m.page && m.page.entry);
     view.innerHTML =
       '<div class="panel glass">' +
       '<h2><svg class="ico"><use href="#' + ic + '"/></svg>' + esc(m.name || mid) +
@@ -2090,14 +2093,41 @@ function syncModuleViews(list){
       '<svg class="ico"><use href="#i-stop"/></svg>停止</button>' +
       '<button class="act" onclick="runAction(\'module.restart\',{id:\'' + esc(mid) + '\'})">' +
       '<svg class="ico"><use href="#i-restart"/></svg>重启</button>' +
+      (dyn ? '<button class="act ghost mini" onclick="loadModuleEntry(\'' + esc(mid) + '\')">' +
+             '<svg class="ico"><use href="#i-restart"/></svg>重新获取入口</button>' : "") +
       '<span class="grow"></span>' +
       '<button class="act ghost mini" onclick="uninstallModule(\'' + esc(mid) + '\')">' +
       '<svg class="ico"><use href="#i-x-circle"/></svg>卸载</button>' +
       '</div>' +
-      '<div class="hint">页面由模块自己的容器提供，面板只做同源嵌入，不代理它的流量，也不替它认证。</div>' +
-      '<iframe class="mod-frame" src="' + esc(url) + '" title="' + esc(m.name || mid) + '"></iframe>' +
+      '<div class="hint" id="modHint-' + esc(mid) + '">' +
+      (dyn ? "入口地址每次启动都会重新生成，打开本页时自动获取。"
+           : "页面由模块自己的容器提供，面板只做同源嵌入，不代理它的流量，也不替它认证。") +
+      '</div>' +
+      '<iframe class="mod-frame" id="modFrame-' + esc(mid) + '" title="' + esc(m.name || mid) + '"' +
+      (dyn ? "" : ' src="' + esc(url) + '"') + '></iframe>' +
       '</div>';
     host.appendChild(view);
+    if(dyn) loadModuleEntry(mid);
+  }
+}
+
+/* 模块页面的动态入口。
+   有的模块（入口用一次性启动 token 换会话 cookie 的那类）地址每次启动才生成，
+   manifest 用 page.entry 声明这件事。这里现取现用：取到的地址换完 cookie 就作废，
+   缓存下来的只会是一个打不开的链接。 */
+async function loadModuleEntry(mid){
+  const frame = document.getElementById("modFrame-" + mid);
+  const hint = document.getElementById("modHint-" + mid);
+  if(!frame) return;
+  if(hint) hint.textContent = "正在获取入口地址…";
+  try{
+    const j = await api("/api/modules/entry?id=" + encodeURIComponent(mid));
+    if(!j.ok) throw new Error(j.error || "取不到入口地址");
+    frame.src = j.url;
+    if(hint) hint.textContent = "入口地址每次启动都会重新生成，打开本页时自动获取。";
+  }catch(e){
+    if(hint) hint.textContent = "入口地址获取失败：" + (e.message || e) +
+      "。若刚重启过模块，稍等几秒再点「重新获取入口」。";
   }
 }
 

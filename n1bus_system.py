@@ -82,20 +82,9 @@ class Services:
 LOG_TIME_RE = re.compile(r"^(\d+[smhd]|\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?)$")
 
 
-# DeepSeek Harness（dsh）容器，以及它在浏览器里的入口。
-#
-# 面板需要单独处理该场景的原因：dsh 的 Web UI 只有**一种**入口方式 ——
-# 使用一次性启动 token 换取会话 cookie。没有 token 时，/dsh/ 一律返回 401（纯文本
-# Unauthorized），因此「从面板跳转进入」这一操作必须即时获取 token。该 token 每次启动
-# 时生成、仅输出到容器日志且不写入磁盘，只能从日志中提取 —— 这就是 /api/dsh 接口存在的理由。
-#
-# 服务拓扑（见 docs/adr/0008）：dsh 本体仅监听 127.0.0.1，容器内另有一个 TCP 转发进程
-# 将 0.0.0.0:3081 转发给它；宿主上的 Caddy 去掉 https://lolicon.fans/dsh/* 的路径前缀后
-# 反向代理到该转发端口。
-DSH_CONTAINER = os.environ.get("N1BUS_DSH_CONTAINER", "dsh")
-DSH_PUBLIC_BASE = os.environ.get("N1BUS_DSH_BASE", "https://lolicon.fans/dsh/")
-DSH_ENTRY_TTL = 30.0
-DSH_TOKEN_RE = re.compile(r"token=([A-Za-z0-9_-]{16,})")
+# DeepSeek Harness（dsh）的入口链接曾经写死在这里（/api/dsh）。模块系统上线后
+# 这件事改由 manifest 的 page.entry 声明、n1bus_modules.entry_url() 统一处理，
+# 本体不再认识任何具体模块 —— 见 docs/modules.md。
 
 
 class Docker:
@@ -106,7 +95,6 @@ class Docker:
         self.hint = "" if self.available else "这台机器上没有 docker 命令"
         self._cache = (0.0, None)
         self._stats = (0.0, {})
-        self._dsh = (0.0, None)
         self.stats_ttl = stats_ttl
         self._stats_lock = threading.Lock()
         self._stats_busy = False
@@ -206,47 +194,12 @@ class Docker:
                 "running": sum(1 for x in out if x["running"])}
 
     def dsh(self):
-        """DeepSeek Harness 的进入链接（理由见模块顶部 DSH_* 常量的注释）。
+        """已下线：入口链接改由模块系统提供（n1bus_modules.entry_url）。
 
-        任何一步条件不满足都如实说明，不构造硬编码链接 —— 链接无效时用户访问只能得到 401。
-        返回结构直接给前端用：available / state / started / url / hint。
+        保留这个壳是为了让还在调用 /api/dsh 的旧客户端拿到一句明确的话，
+        而不是一个 AttributeError。新代码不要再用它。
         """
-        info = {"available": False, "container": DSH_CONTAINER, "state": "",
-                "started": "", "url": "", "hint": "", "error": ""}
-        if not self.available:
-            info["hint"] = self.hint
-            return info
-        code, out, err = run(["docker", "inspect", "--format",
-                              "{{.State.Status}}|{{.State.StartedAt}}", DSH_CONTAINER],
-                             timeout=10)
-        if code != 0:
-            info["hint"] = "这台机器上没有名为 %s 的容器" % DSH_CONTAINER
-            return info
-        info["available"] = True
-        state, _, started = out.strip().partition("|")
-        info["state"] = state
-        info["started"] = started
-        if state != "running":
-            info["hint"] = "容器当前状态为 %s，待其运行后方可获取可用链接" % (state or "未知状态")
-            return info
-        # token 仅在容器重启时变化，因此缓存以 StartedAt 作为键；TTL 用于覆盖边界情况。
-        now = time.time()
-        ts, cached = self._dsh
-        if cached and cached[0] == started and (now - ts) < DSH_ENTRY_TTL:
-            info["url"] = cached[1]
-            return info
-        code, out, err = run(["docker", "logs", "--tail", "200", DSH_CONTAINER], timeout=15)
-        found = ""
-        for line in (out + "\n" + err).splitlines():
-            m = DSH_TOKEN_RE.search(line)
-            if m:
-                found = m.group(1)
-        if not found:
-            info["hint"] = "日志中尚未出现启动 token，容器可能刚启动、日志尚未输出完毕"
-            return info
-        info["url"] = DSH_PUBLIC_BASE + "?token=" + found
-        self._dsh = (now, (started, info["url"]))
-        return info
+        return {"available": False, "hint": "该接口已下线，模块入口见 /api/modules/entry"}
 
     def logs(self, name, lines=200, since="", until="", grep="", timestamps=False):
         """查看容器日志，允许传入 docker logs 自身的参数。

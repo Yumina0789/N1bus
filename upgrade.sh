@@ -59,7 +59,7 @@ if [ -f "$UNIT" ]; then
   set -- $rest
   while [ $# -gt 0 ]; do
     case "$1" in
-      --port|--bind|--allow-ip|--data-dir|--store-url)
+      --port|--bind|--allow-ip|--data-dir|--store-url|--caddy-sites|--caddy-container)
         ARGS+=("$1" "$2"); shift 2 ;;
       *) shift ;;
     esac

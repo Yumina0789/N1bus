@@ -15,7 +15,7 @@ from n1bus_actions import PROTECTED_UNITS
 from n1bus_files import (FILE_EDIT_MAX, FILE_MAX_ENTRIES, FILE_ROOTS, FILE_TEXT_LIMIT,
                          FILE_UPLOAD_MAX, _human_size, _size_bytes, _tail_file,
                          safe_name, safe_path, safe_write_path)
-from n1bus_system import (DSH_CONTAINER, DSH_PUBLIC_BASE, DISTRO_UNIT_DIRS,
+from n1bus_system import (DISTRO_UNIT_DIRS,
                           ETC_UNIT_DIR, LOG_TIME_RE, Docker, Ports, Processes,
                           Services, _all_service_units, _docker_autostart,
                           _etc_service_units, _is_distro_unit, _unit_props)
@@ -838,11 +838,9 @@ class _DemoDocker:
                 "running": sum(1 for c in out if c["running"])}
 
     def dsh(self):
-        # 演示模式返回一个明显无效的 token，确保它无法在真机上使用
-        return {"available": True, "container": DSH_CONTAINER, "state": "running",
-                "started": "2026-10-10T10:35:00Z",
-                "url": DSH_PUBLIC_BASE + "?token=demo-not-a-real-token-0000",
-                "hint": "", "error": ""}
+        # 该接口已下线，入口由模块系统提供。演示数据保留一个明显无效的返回值。
+        return {"available": False,
+                "hint": "该接口已下线，模块入口见 /api/modules/entry"}
 
     def logs(self, name, lines=200, since="", until="", grep="", timestamps=False):
         # 校验与真机保持一致：演示模式同样不接受非法参数或非法容器名

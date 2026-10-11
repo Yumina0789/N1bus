@@ -19,7 +19,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from n1bus_util import VERSION, read_text
+from n1bus_util import VERSION, read_text, run
 
 
 # 商店 = registry 仓库的 GitHub Pages 静态站（见 docs/modules.md §4）。
@@ -48,6 +48,16 @@ ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 VER_RE = re.compile(r"^\d+(?:\.\d+)*$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 ICON_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+
+# page.url 是站内路径。字符集比"看起来合理"更紧一档：它会被原样写进 Caddy 配置，
+# 只认这些字符就不必再担心把一个 Caddyfile 指令注入进去。
+PAGE_URL_RE = re.compile(r"^/[A-Za-z0-9._~/-]*$")
+# page.upstream 是 Caddy 的 reverse_proxy 目标：只收 host:port，不收协议与路径。
+UPSTREAM_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}:\d{1,5}$")
+# 容器名（page.entry.container）：会作为 `docker logs` 的一个参数。
+CONTAINER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+# 一次性入口 token：从容器日志里提取。规则写死在**本体**里 —— 模块给不了正则。
+ENTRY_TOKEN_RE = re.compile(r"token=([A-Za-z0-9_-]{16,})")
 
 
 class ModuleError(Exception):
@@ -171,8 +181,31 @@ def check_manifest(raw, entry=None):
     if page.get("kind") != "iframe":
         return False, "page.kind 目前只支持 iframe（收到 %r）" % page.get("kind"), {}
     url = str(page.get("url") or "")
-    if not url.startswith("/") or "//" in url or ".." in url:
+    if not PAGE_URL_RE.match(url) or url.startswith("//") or ".." in url:
         return False, "page.url 必须是站内绝对路径，例如 /m/%s/" % mid, {}
+
+    # upstream：Caddy 把 page.url 这一个前缀转给谁（模块自己的容器）。
+    # 本体把它原样写进 Caddy 配置，所以字符集卡得比 docker 允许的更紧：只收 host:port，
+    # 不收协议、路径、空格 —— 写进去的每一段都必须先是本文件认可的。
+    up = str(page.get("upstream") or "")
+    if up and not UPSTREAM_RE.match(up):
+        return False, "page.upstream 必须是 host:port（例如 n1bus-%s-web:80）：%r" % (mid, up), {}
+
+    # entry：页面入口不是静态地址时（入口 URL 每次启动才生成），由本体去取。
+    # type 是**白名单**：本体的能力只有「读容器日志 + 套用本体内置的提取规则」这一种，
+    # 模块既给不了正则、也给不了命令 —— 与 ADR 0002「面板不执行外部提供的命令」一致。
+    ent = page.get("entry")
+    if ent is not None:
+        if not isinstance(ent, dict):
+            return False, "page.entry 不是对象", {}
+        etype = str(ent.get("type") or "")
+        if etype != "container-log-token":
+            return False, ("不认识的 page.entry.type：%r（目前只有 container-log-token）"
+                           % etype), {}
+        cname = str(ent.get("container") or "")
+        if not CONTAINER_RE.match(cname):
+            return False, "page.entry.container 不合法：%r" % cname, {}
+        ent = {"type": etype, "container": cname}
 
     return True, "", {
         "schema": 1, "id": mid, "version": ver,
@@ -182,7 +215,7 @@ def check_manifest(raw, entry=None):
         "compose": ({"file": str(comp.get("file")), "project": str(comp.get("project"))}
                     if comp is not None else None),
         "ports": ports,
-        "page": {"kind": "iframe", "url": url,
+        "page": {"kind": "iframe", "url": url, "upstream": up, "entry": ent,
                  "title": str(page.get("title") or raw.get("name") or mid)},
     }
 
@@ -255,12 +288,22 @@ def safe_extract(tar_path, dest, max_total=UNPACK_MAX):
 class Modules:
     """商店清单 + 已装模块。**不碰 docker** —— 容器编排由 module.* 动作负责。"""
 
-    def __init__(self, root=MODULES_DIR, store_url=STORE_URL, dry=False):
+    def __init__(self, root=MODULES_DIR, store_url=STORE_URL, dry=False,
+                 caddy_sites="", caddy_container=""):
         self.root = Path(root)
         self.store_url = (store_url or "").rstrip("/")
         self.dry = dry
+        # Caddy 同步：两个都给了才生效（见 sync_caddy）。默认关着 ——
+        # 面板不假设服务器上一定有 Caddy，也不去猜它的目录在哪。
+        self.caddy_sites = caddy_sites
+        self.caddy_container = caddy_container
         self._index = None
         self._index_at = 0.0
+
+    def sync_caddy(self):
+        """装 / 卸模块之后调用：把已装模块的页面路由同步给 Caddy。"""
+        return sync_caddy(self.installed(), self.caddy_sites,
+                          self.caddy_container, self.dry)
 
     # --- 商店 ------------------------------------------------------------
     def store(self, force=False):
@@ -332,6 +375,37 @@ class Modules:
 
     def installed_ids(self):
         return [m["id"] for m in self.installed()]
+
+    def entry_url(self, mid):
+        """模块页面的入口地址。
+
+        多数模块的 page.url 就是最终地址，照抄即可。但有的模块（入口用一次性 token
+        换 cookie 的那类）地址**每次启动才生成**，只出现在自己的容器日志里 ——
+        manifest 会用 page.entry 声明这件事，这里负责把它取出来。
+
+        **不缓存**：这类 token 通常一次有效，缓存一个已作废的入口比慢一点更糟。
+        """
+        inst = {m["id"]: m for m in self.installed()}
+        m = inst.get(mid)
+        if m is None:
+            return {"ok": False, "error": "没有安装这个模块：%s" % mid}
+        page = m.get("page") or {}
+        ent = page.get("entry")
+        if not ent:
+            return {"ok": True, "dynamic": False, "url": page.get("url") or ""}
+        cname = ent["container"]
+        code, out, err = run(["docker", "logs", "--tail", "400", cname], timeout=25)
+        if code != 0:
+            return {"ok": False, "error": "读不到容器 %s 的日志：%s"
+                    % (cname, (err or out).strip()[:200])}
+        # docker logs 把 stdout 与 stderr 分开给；两路都扫，顺序对匹配没有意义
+        hit = ENTRY_TOKEN_RE.search(out) or ENTRY_TOKEN_RE.search(err)
+        if hit is None:
+            return {"ok": False, "error":
+                    "容器 %s 的日志里还没有入口 token（容器可能还没起来）" % cname}
+        base = page.get("url") or "/"
+        return {"ok": True, "dynamic": True,
+                "url": base + ("&" if "?" in base else "?") + "token=" + hit.group(1)}
 
     # --- 安装 ------------------------------------------------------------
     def fetch(self, mid, version=None):
@@ -452,6 +526,66 @@ class Modules:
         except OSError as e:
             return False, "删除模块目录失败：%s" % e
         return True, ""
+
+
+# --------------------------------------------------------------------------
+# 模块页面的 Caddy 路由
+# --------------------------------------------------------------------------
+# 模块页面是站内路径（/m/<id>/），由 Caddy 转给模块自己的容器 —— 本体不代理模块流量。
+# 片段在这里生成，装 / 卸模块时**整体重写一次**：不需要增量维护，也不会和手工配置
+# 打架，因为站点块里只有一行 import /etc/caddy/sites/modules/*.caddy。
+SITES_SUBDIR = "modules"
+ROUTES_FILE = "routes.caddy"
+
+
+def caddy_routes(installed):
+    """把已装模块的页面路由渲染成一份 Caddy 片段。返回 (文本, 路由条数)。"""
+    lines = ["# 本文件由 N1bus 生成：已装模块的页面路由。",
+             "# 每次安装或卸载模块都会整体重写，手工修改会在下一次被覆盖。",
+             "# 收进来的方式 —— 站点块内：import /etc/caddy/sites/modules/*.caddy",
+             ""]
+    n = 0
+    for m in sorted(installed, key=lambda x: (x.get("id") or "")):
+        page = m.get("page") or {}
+        url = page.get("url") or ""
+        up = page.get("upstream") or ""
+        # 没有 upstream 的模块页面不由 Caddy 提供（例如根本不需要容器的），跳过
+        if not up or not url.startswith("/m/"):
+            continue
+        lines.append("# %s（%s）" % (m.get("name") or m.get("id"), m.get("id")))
+        lines.append("handle_path %s* {" % url)
+        lines.append("\treverse_proxy %s" % up)
+        lines.append("}")
+        n += 1
+    if not n:
+        lines.append("# 目前没有需要路由的模块。")
+    return "\n".join(lines) + "\n", n
+
+
+def sync_caddy(installed, sites_dir, caddy_container, dry=False):
+    """把模块路由写进 Caddy 的 sites 目录并热重载。返回 (ok, detail)。
+
+    **没配置 sites_dir / caddy_container 时什么都不做** —— 面板不假设服务器上一定有
+    Caddy，也不去猜它的目录在哪。这两个值由安装脚本按部署实际情况给。
+    """
+    if not sites_dir or not caddy_container:
+        return True, ""
+    text, n = caddy_routes(installed)
+    target = Path(sites_dir) / SITES_SUBDIR / ROUTES_FILE
+    if dry:
+        return True, "演示模式：不写 Caddy 配置（会写 %s，%d 条路由）" % (target, n)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old = read_text(target) if target.is_file() else ""
+        if old != text:
+            target.write_text(text, encoding="utf-8")
+    except OSError as e:
+        return False, "写 Caddy 配置失败（%s）：%s" % (target, e)
+    code, out, err = run(["docker", "exec", caddy_container, "caddy", "reload",
+                          "--config", "/etc/caddy/Caddyfile"], timeout=30)
+    if code != 0:
+        return False, "Caddy 重载失败：%s" % ((err or out).strip()[:300])
+    return True, "已同步 %d 条模块路由" % n
 
 
 # 演示模式下的商店清单：结构与真机一致，界面代码不用分叉。

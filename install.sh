@@ -35,6 +35,10 @@ N1bus 安装脚本：把面板装成宿主机上的 systemd 服务。
   --allow-ip 网段  来源白名单（逗号分隔）；留空 = 不限制
   --prefix DIR    安装目录（默认 /opt/n1bus）
   --data-dir DIR  数据目录（默认 /var/lib/n1bus，放 token 与审计日志）
+  --store-url URL 模块商店地址（默认 registry 仓库的 GitHub Pages）
+  --caddy-sites DIR    Caddy 的 sites 目录（宿主路径）。配合 --caddy-container
+                       使用：装 / 卸模块时把页面路由写进去并热重载
+  --caddy-container N  跑 Caddy 的容器名（例如 caddy）
   --token STR     指定 token（默认随机生成）
   --uninstall     停止并移除服务，保留数据与 token
   --purge         连数据目录一起删
@@ -49,6 +53,9 @@ while [ $# -gt 0 ]; do
     --allow-ip) ALLOW_IP="${2:?}"; shift 2 ;;
     --prefix) PREFIX="${2:?}"; shift 2 ;;
     --data-dir) DATA_DIR="${2:?}"; shift 2 ;;
+    --store-url) STORE_URL="${2:?}"; shift 2 ;;
+    --caddy-sites) CADDY_SITES="${2:?}"; shift 2 ;;
+    --caddy-container) CADDY_CONTAINER="${2:?}"; shift 2 ;;
     --token) TOKEN="${2:?}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) UNINSTALL=1; PURGE=1; shift ;;
@@ -127,6 +134,16 @@ if [ -n "$ALLOW_IP" ]; then
   ALLOW_ARGS=" --allow-ip $ALLOW_IP"
   echo "    来源白名单：$ALLOW_IP"
 fi
+# 模块页面的路由由 Caddy 承担。这两个值都给全了才启用同步；否则面板不做任何假设。
+CADDY_ARGS=""
+if [ -n "$STORE_URL" ]; then
+  CADDY_ARGS="$CADDY_ARGS --store-url $STORE_URL"
+  echo "    模块商店：$STORE_URL"
+fi
+if [ -n "$CADDY_SITES" ] && [ -n "$CADDY_CONTAINER" ]; then
+  CADDY_ARGS="$CADDY_ARGS --caddy-sites $CADDY_SITES --caddy-container $CADDY_CONTAINER"
+  echo "    模块路由：写 $CADDY_SITES/modules/，重载容器 $CADDY_CONTAINER"
+fi
 cat > "$UNIT" <<EOF
 [Unit]
 Description=N1bus 服务器管理面板
@@ -136,7 +153,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir $DATA_DIR --token-file $DATA_DIR/n1bus.token$ALLOW_ARGS
+ExecStart=$PY $PREFIX/n1bus.py --mode real --bind $BIND --port $PORT --data-dir $DATA_DIR --token-file $DATA_DIR/n1bus.token$ALLOW_ARGS$CADDY_ARGS
 Restart=always
 RestartSec=3
 User=root
