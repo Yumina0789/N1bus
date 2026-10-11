@@ -7,14 +7,14 @@
 > * `n1bus_modules.py` —— 商店清单、manifest 与模块包的校验、防穿越解包、安装与卸载；
 > * 五个受控动作 `module.install` / `.start` / `.stop` / `.restart` / `.down`
 >   （`module.install` 对没有 compose 的模块退化成 `up -d`）；
-> * 四个端点 `/api/modules`、`/api/modules/store`、`/api/modules/install`、
->   `/api/modules/uninstall`，外加 `/api/modules/entry`（动态入口）；
+> * 五个端点 `/api/modules`、`/api/modules/store`、`/api/modules/install`、
+>   `/api/modules/uninstall`、`/api/modules/config`，外加 `/api/modules/entry`（动态入口）；
 > * **装 / 卸模块时自动重写 Caddy 路由并热重载**，页面「装上即出现」；
 > * 模块页：列表 + 「模块商店」+ 逐个装卸，装上即出现子标签（iframe 页面）；
 > * registry 仓库 [`Yumina0789/N1bus-modules`](https://github.com/Yumina0789/N1bus-modules)
 >   已建好并启用 Pages，里面是 **`rsc4d`** 与 **`harness`** 两个模块。
 >
-> 还没做：模块升级、模块间依赖、registry 签名（见 §10）。
+> 还没做：模块间依赖、registry 签名（见 §10）。
 
 ---
 
@@ -182,7 +182,8 @@ N1bus-modules/                    # 仓库 = registry
    "default": 60, "min": 1, "max": 100000,
    "help": "同一来源在「拒绝时长」内最多发起多少次连接，超出即丢弃"},
   {"key": "KMS_DOMAIN", "label": "对外域名", "type": "text",
-   "default": "", "placeholder": "kms.example.com"}
+   "default": "", "placeholder": "kms.example.com", "apply": "file",
+   "help": "只影响状态页里那两条客户端命令，页面当场就能读到新值"}
 ]
 ```
 
@@ -193,19 +194,49 @@ N1bus-modules/                    # 仓库 = registry
 | `default` | `bool` 用 `"0"` / `"1"`；`select` 必须落在 `options` 里 |
 | `min` / `max` | 仅 `number` |
 | `options` | 仅 `select` |
+| `apply` | `restart`（缺省）/ `file` —— 保存之后**要不要动容器**，见下 |
 | `label` / `help` / `placeholder` | 界面文案 |
 
-保存时本体做三件事，顺序不能反：
+保存时本体做的事，顺序有意义：
 
 1. **校验**（类型、范围、字符集）
-2. 写 `<模块目录>/.env`（compose 的变量来源）**与** `config.json`（模块页面读它——
-   页面是它自己容器里的静态页，读不到 `.env`）
-3. `docker compose up -d` —— 环境变量变了，compose 会**重建**受影响的容器
+2. 写 `<模块目录>/config.json`（模块页面读它 —— 页面是它自己容器里的静态页，
+   读不到 `.env`），**然后**写 `.env`（compose 的变量来源）
+3. **只有确实变了、且声明为 `apply: restart` 的项**才让容器按新值重来 —— 跑
+   `docker compose up -d`，由 compose 按每个服务的 config hash 判断该重建哪几个
 
+> **顺序为什么是先 `config.json` 后 `.env`**：单文件挂载那一份最容易失败（宿主上那个
+> 路径可能是 Docker 建出来的**目录**），而 `.env` 一写下去就会影响此后**每一次** `up -d`
+> 的插值。反过来先写 `.env`，一次失败就留下「`.env` 是新的、页面还是旧的」这种半截
+> 状态 —— 更糟的是它会在下一次重建时突然生效。
+>
+> **`config.json` 必须原地改写**（不能用「写临时文件再 rename」那种原子写法）：bind mount
+> 认的是容器创建那一刻的 inode，换掉 inode 等于容器里永远读不到新内容。同理，**这个文件
+> 必须先于容器存在** —— 不存在时 Docker 会替你建一个同名**目录**，此后每次写都是
+> `Errno 21`，配置再也存不进去。所以本体「装完模块立刻写一份默认值」，
+> 而 `save_config` 撞上目录时也会当场把它换回文件（不让用户靠卸载重装自救）。
+>
 > **`.env` 是行式格式，一个换行就能把一个值变成两个变量。** 所以值只接受可见 ASCII、
 > 长度 ≤ 200，键名也不许出现小写与连字符 —— 否则一个「域名」框就能往 `.env` 里塞变量。
 >
+> **模块没在 `config` 里声明的 `.env` 变量会原样保留**（例如 README 让人手工设的
+> `RSC4D_IMAGE`）：保存一次界面上的配置，不该把它们连带抹掉。
+>
 > 用户改过的 `.env` / `config.json` 在**重装模块时会被保留**：升级不该冲掉配置。
+
+#### `apply`：保存之后要不要动容器
+
+| 值 | 含义 |
+|---|---|
+| `restart`（缺省） | 值**要进容器**（compose 从 `.env` 插值成环境变量，或容器启动时读一次）。改完必须让容器按新值重来，否则它还用着启动那一刻的旧值 |
+| `file` | 值只被模块容器**当场按请求读**（挂在它里面的那份 `config.json`）。写进文件就够了 |
+
+缺省是 `restart`：老 manifest 没写这个字段时保持既有语义，不悄悄降级成「只写文件」。
+
+> **为什么需要这个字段**：rsc4d 的「对外域名」只影响状态页上那两条客户端命令 —— 它进
+> `config.json`，由模块里的 Caddy 按请求读。但在这个字段出现之前，保存它走的是和
+> 「限流参数」同一条路：把 kms / limiter / web 三个容器一起推倒重建，KMS 的 1688 端口
+> 跟着断几秒。改一个纯展示的域名，不该让服务停一下。
 
 ---
 
@@ -217,7 +248,7 @@ N1bus-modules/                    # 仓库 = registry
 | 2 | **iframe 嵌模块自己的页面** | 站内路径 `/m/<id>/`，**由 Caddy 转给模块的容器**；本体不代理、不替它认证 |
 | 3 | **维护 Caddy 路由** | 装 / 卸模块后重写路由片段并热重载 |
 | 4 | **取动态入口** | `page.entry`，见下 |
-| 5 | **收集并落盘模块配置** | `config` 声明 → 模块页表单 → `.env` + `config.json` → 重建容器（见 §5） |
+| 5 | **收集并落盘模块配置** | `config` 声明 → 模块页表单 → `.env` + `config.json` → **按需**重建容器（见 §5） |
 
 ### 动作
 
@@ -302,10 +333,31 @@ manifest 用 `page.entry` 声明，前端在打开页面时先取再嵌 iframe�
       失败时：包或清单不合法 → 服务器上不留半个模块；
               容器起不来 → 目录保留（便于排障），如实报错，不回滚 Caddy
 
+升级：与安装**同一条链路**（同一个端点 `/api/modules/install`，多带一个 `version`）：
+      下载 → 校验 → 解到临时目录 → 校验 manifest → **原地**同步进模块目录
+      （不换目录，见下）→ 保留用户改过的 .env / config.json → 预写默认值
+      → module.install → 重写 Caddy 路由
+
 卸载：module.down（摘容器，保留数据卷）→ 移走目录 → 重写路由（撤掉该模块）
 ```
 
-每一步都写审计（`module.fetch` / `module.install` / `module.route` / `module.remove`）。
+界面靠**服务端算好的** `update` 字段决定显不显示更新按钮：`/api/modules` 返回的每个已装
+模块都带 `update` —— `null` 表示「已是最新」**或**「商店不可达，判断不了」，两种情况都不
+显示按钮；有新版本时给出 `{version, available, reason}`，面板太旧装不了新版就给一句说明，
+而不是一个点了必然失败的按钮。
+
+> **降级不在能力范围内**：已装的模块只允许往**新的**版本走（升级，或者同版本重装来修复
+> 坏掉的文件）。要回退就把模块卸掉再装旧版 —— 那会连带清掉配置，是个必须让人明确知道的
+> 动作，不该由一个手滑的版本号触发。
+
+> **为什么升级不写成「先卸载再安装」**：卸载会把模块目录整个删掉再重建，而 bind mount
+> 认的是目录的 **inode** —— 正在跑的容器会看到一个**已经被删掉**的目录（里面是空的、
+> `config.json` 看着像目录），而 compose 因为配置没变**不会重建它**。表现是模块页面
+> 404、配置再也存不进去。所以升级走的是原地同步：覆盖同名、删掉多余的、保留目录本身。
+> 同一个理由也让「装完立刻写默认配置」成了必要动作（见 §5）。
+
+每一步都写审计（`module.fetch` / `module.install` / `module.route` / `module.remove`、
+保存配置是 `module.config`）。
 
 ---
 
@@ -350,7 +402,7 @@ RSC4D 上线后，**vlmcsd 退役**，激活记录不迁移（见 ADR 0012）—
 
 | # | 问题 | 倾向 |
 |---|---|---|
-| 1 | 模块的**升级**（装上更高版本） | 下一轮。目前要升级得先卸载再装 |
+| 1 | ~~模块的**升级**~~ | **已实现**：与安装同一端点（多带一个 `version`），原地同步、保留配置；已装列表带 `update`，界面显示「更新到 vX」（§7） |
 | 2 | 模块之间的依赖 | 不做 |
 | 3 | registry 是否要求签名（minisign/GPG） | 先不做；哈希 + 单源已在可接受范围 |
 | 4 | 读模块容器日志（本体内置一个「模块日志」块） | 有用，但用 `docker logs` 也能看，优先级低 |

@@ -28,6 +28,9 @@ jobs:
       - name: 演示模式冒烟（拉起来把接口打一遍）
         run: python3 tools/smoke.py
 
+      - name: 模块配置落盘回归（目录自愈 / .env 保留 / apply 判定）
+        run: python3 tools/test_modules.py
+
   shellcheck:
     name: shellcheck 安装脚本
     runs-on: ubuntu-24.04

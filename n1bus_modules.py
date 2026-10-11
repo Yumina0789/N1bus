@@ -66,6 +66,13 @@ CONFIG_TYPES = ("text", "number", "bool", "select")
 CONFIG_VALUE_MAX = 200
 CONFIG_ENV = ".env"
 CONFIG_JSON = "config.json"
+# 一项配置保存之后该怎么生效：
+#   restart —— 值要**进容器**（compose 从 .env 插值成环境变量，或容器启动时读一次），
+#              必须让容器按新值重来，否则它还用着启动那一刻的旧值
+#   file    —— 值只被模块容器**当场按请求读**（挂进它里面的那份 config.json），
+#              写进文件就够了，没有理由为它把服务停一下
+# 缺省 restart：老 manifest 没写这个字段时保持既有语义，不悄悄降级成「只写文件」。
+CONFIG_APPLY = ("restart", "file")
 
 
 class ModuleError(Exception):
@@ -255,7 +262,8 @@ def check_manifest(raw, entry=None):
             return False, "ports 的元素不是对象", {}
 
     # config：模块在面板上暴露的可配置项。面板只负责收值 → 写 <模块目录>/.env →
-    # 重新 `up -d`（compose 发现环境变量变了会重建容器）。怎么用这些值由模块自己决定。
+    # 按需重新 `up -d`：声明为需要重启的项（默认）才会让容器按新值重来，纯展示项
+    # （apply=file）写进文件当场就生效。怎么用这些值由模块自己决定。
     cfg = raw.get("config") or []
     if not isinstance(cfg, list):
         return False, "config 不是数组", {}
@@ -274,7 +282,11 @@ def check_manifest(raw, entry=None):
         if ctype not in CONFIG_TYPES:
             return False, "config %s 的 type 不认识：%r（只有 %s）" % (
                 ckey, ctype, " / ".join(CONFIG_TYPES)), {}
-        item = {"key": ckey, "type": ctype,
+        capply = str(c.get("apply") or "restart")
+        if capply not in CONFIG_APPLY:
+            return False, "config %s 的 apply 不认识：%r（只有 %s）" % (
+                ckey, capply, " / ".join(CONFIG_APPLY)), {}
+        item = {"key": ckey, "type": ctype, "apply": capply,
                 "label": str(c.get("label") or ckey)[:60],
                 "help": str(c.get("help") or "")[:300],
                 "default": c.get("default", "" if ctype != "number" else 0)}
@@ -507,6 +519,28 @@ class Modules:
     def installed_ids(self):
         return [m["id"] for m in self.installed()]
 
+    def update_for(self, mid, current, store=None):
+        """已装模块有没有可升级的新版本。返回 None（没有，或判断不了）或一个字典。
+
+        判据只有一条：商店清单里的 `latest`（`check_index` 强制它是该模块最高的版本）。
+        拿不到清单时**如实返回 None**，不猜「大概有新版」—— 界面据此显示更新按钮，
+        猜错就是给用户一个点了必然失败的按钮。
+        """
+        got = store if isinstance(store, dict) else self.store()
+        for m in got.get("modules") or []:
+            if m["id"] != mid:
+                continue
+            if _ver_tuple(m.get("latest")) <= _ver_tuple(current):
+                return None
+            spec = (m.get("versions") or {}).get(m.get("latest")) or {}
+            mc = spec.get("min_core") or ""
+            if mc and _ver_tuple(mc) > _ver_tuple(VERSION):
+                # 有新版，但这个面板太旧。如实说出来，同样不给一个点了必然失败的按钮。
+                return {"version": m["latest"], "available": False,
+                        "reason": "需要面板版本 ≥ %s（当前 %s）" % (mc, VERSION)}
+            return {"version": m["latest"], "available": True, "reason": ""}
+        return None
+
     # --- 配置 ------------------------------------------------------------
     def config(self, mid):
         """模块声明的配置项与当前值（读 <模块目录>/.env，缺的用默认值）。没有就返回 None。"""
@@ -518,15 +552,20 @@ class Modules:
                 for item in (m.get("config") or [])]
 
     def save_config(self, mid, values):
-        """校验并写入 <模块目录>/.env 与 config.json。返回 (ok, error, saved)。
+        """校验并写入 <模块目录>/.env 与 config.json。返回 (ok, error, saved, apply)。
 
         为什么要写两份：`.env` 是给 compose 插值用的（改完 `up -d` 会重建容器），
         而模块页面是它自己容器里的静态页，读不到 `.env` —— 它读 `config.json`。
         同一个来源，两种读法。
+
+        `apply` ∈ {"restart", "none"}：保存之后**要不要动容器**。只有确实变了、且那一项
+        声明为需要重启（默认）时才给 "restart"。纯展示项（`apply: file`）写进 bind mount
+        的文件当场就能被容器按请求读到 —— 为它停一次服务没有理由，而 rsc4d 的域名正是
+        这种项：改它曾经把三个容器一起推倒，KMS 端口跟着断几秒。
         """
         items = self.config(mid)
         if items is None:
-            return False, "没有安装这个模块：%s" % mid, {}
+            return False, "没有安装这个模块：%s" % mid, {}, "none"
         values = values if isinstance(values, dict) else {}
         clean = {}
         try:
@@ -534,17 +573,43 @@ class Modules:
                 clean[item["key"]] = _config_value(
                     item, values.get(item["key"], item["value"]))
         except ModuleError as e:
-            return False, str(e), {}
+            return False, str(e), {}, "none"
         d = self.root / mid
+        old = _read_env(d / CONFIG_ENV)
+        managed = {item["key"] for item in items}
+        changed = {k for k, v in clean.items() if old.get(k) != v}
+        apply_ = "none"
+        for item in items:
+            if item["key"] in changed and item.get("apply", "restart") != "file":
+                apply_ = "restart"
+                break
         try:
+            # 顺序：先 config.json、后 .env。单文件挂载那份最容易失败（宿主上那个路径
+            # 可能是 Docker 建的目录），而 `.env` 一写下去就会影响此后每一次 `up -d` 的
+            # 插值 —— 反过来先写 .env，一次失败就留下「.env 是新的、页面还是旧的」这种
+            # 半截状态，它还会在下一次重建时突然生效。
+            target = d / CONFIG_JSON
+            # compose 里 config.json 是单文件挂载：文件不存在时 Docker 会替你建一个
+            # **目录**，此后每次写都是 Errno 21（Linux 上 Is a directory），配置再也
+            # 存不进去。上游只在「安装 / 升级」那条路上会把它换回文件，早就装好的模块
+            # 不会自愈 —— 所以这里当场处理，而不是让用户靠卸载重装自救。
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            target.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n",
+                              encoding="utf-8")
             lines = ["# 由 N1bus 在模块页里写入。重装这个模块时这份文件会被保留。"]
             lines += ["%s=%s" % (k, clean[k]) for k in sorted(clean)]
+            # 不来自本模块 config 声明的变量（例如 README 让人手工设的 RSC4D_IMAGE）
+            # 原样保留：保存一次界面上的配置不该把它们连带抹掉。
+            extra = {k: v for k, v in old.items() if k not in managed}
+            if extra:
+                lines.append("")
+                lines.append("# 以下不由模块的 config 声明，保存时原样保留。")
+                lines += ["%s=%s" % (k, extra[k]) for k in sorted(extra)]
             (d / CONFIG_ENV).write_text("\n".join(lines) + "\n", encoding="utf-8")
-            (d / CONFIG_JSON).write_text(
-                json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         except OSError as e:
-            return False, "写配置文件失败：%s" % e, {}
-        return True, "", clean
+            return False, "写配置文件失败：%s" % e, {}, "none"
+        return True, "", clean, apply_
 
     def entry_url(self, mid):
         """模块页面的入口地址。
@@ -584,10 +649,18 @@ class Modules:
         **只到"落盘 + manifest 校验通过"为止**；起容器是调用方的事（module.install）。
         先解到临时目录，全部校验通过后再整体搬过去 —— 失败时服务器上不会留下半个模块。
         """
-        if self.dry:
-            return self._demo_fetch(mid, version)
         if not ID_RE.match(mid or ""):
             return False, "模块 id 不合法：%r" % mid, {}
+        # 已装的模块只允许往**新的**版本走（升级，或者同版本重装来修复坏掉的文件）。
+        # 降级得先把模块卸掉再装旧版 —— 那会连带清掉配置，是个必须让人明确知道的
+        # 动作，不该由一个手滑的版本号触发。这里在 dry 之前拦，两条路径共用同一道闸门。
+        if version:
+            for m in self.installed():
+                if m["id"] == mid and _ver_tuple(version) < _ver_tuple(m.get("version")):
+                    return False, ("不支持降级：已装 v%s，请求 v%s（要回退请先卸载再装）"
+                                   % (m.get("version"), version)), {}
+        if self.dry:
+            return self._demo_fetch(mid, version)
         entry = self.entry(mid)
         if entry is None:
             return False, "商店里没有这个模块：%s" % mid, {}
@@ -652,8 +725,11 @@ class Modules:
             # 立刻按默认值把配置落一份。compose 里的 config.json 是**单文件挂载**，
             # 文件不存在时 Docker 会替你建一个**目录**，之后本体再想写文件就永远是
             # Errno 21「Is a directory」（这坑踩过一次，KMS 因此断了几分钟）。
-            # 所以不等用户点保存，装完就写出来。
-            self.save_config(mid, {})
+            # 所以不等用户点保存，装完就写出来 —— 而且**写不出来就不起容器**：
+            # 让 module.install 跑下去只会得到一个挂载错位、配置再也存不进去的容器。
+            pre_ok, pre_err, _saved, _apply = self.save_config(mid, {})
+            if not pre_ok:
+                raise ModuleError("装完写默认配置失败，因此没有起容器：%s" % pre_err)
             return True, "", clean
         except Exception as e:  # noqa: BLE001
             return False, "%s: %s" % (type(e).__name__, e), {}
@@ -665,6 +741,11 @@ class Modules:
 
         刻意**不**跳过落盘 —— 否则演示模式下 `module.install` 的「该模块没有安装」
         校验必然失败，整条安装链在演示模式里根本无法演练。
+
+        落盘那一段与真机 `fetch` 走**同一套**动作（临时目录 → 校验 → `_sync_tree`
+        原地同步 → 保留旧配置 → 预写默认值）。早先这里是「删掉整个目录再重建」，
+        于是演示模式下的升级会顺手丢掉配置 —— 而真机不会。演示模式要是和真机不一样，
+        它就演练不出真机的问题，反而教人一个错的预期。
         """
         ver = version or "1.0.0"
         man = {"schema": 1, "id": mid, "version": ver, "name": mid,
@@ -680,18 +761,34 @@ class Modules:
                 tf.addfile(ti, io.BytesIO(data))
         buf.seek(0)
         dest = self.root / mid
+        tmp = self.root / (".tmp-" + mid)
         try:
             self.root.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                shutil.rmtree(dest, ignore_errors=True)
-            dest.mkdir(parents=True)
-            safe_extract(buf, str(dest))
-            good, err, clean = check_manifest(json.loads(read_text(dest / "manifest.json")))
+            if tmp.exists():
+                shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir(parents=True, exist_ok=True)
+            safe_extract(buf, str(tmp))
+            good, err, clean = check_manifest(json.loads(read_text(tmp / "manifest.json")))
             if not good:
                 raise ModuleError(err)
+            # 用户改过的配置先摘出来：升级不该把它冲掉
+            keep = {}
+            for name in (CONFIG_ENV, CONFIG_JSON):
+                f = dest / name
+                if f.is_file():
+                    keep[name] = read_text(f)
+            dest.mkdir(parents=True, exist_ok=True)
+            _sync_tree(tmp, dest)
+            for name, text in keep.items():
+                try:
+                    (dest / name).write_text(text, encoding="utf-8")
+                except OSError:
+                    pass
+            self.save_config(mid, {})
         except Exception as e:  # noqa: BLE001
-            shutil.rmtree(dest, ignore_errors=True)
             return False, "%s: %s" % (type(e).__name__, e), {}
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         clean["path"] = str(dest)
         clean["demo"] = True
         return True, "", clean
@@ -771,10 +868,15 @@ def sync_caddy(installed, sites_dir, caddy_container, dry=False):
 
 
 # 演示模式下的商店清单：结构与真机一致，界面代码不用分叉。
+# rsc4d 刻意留了**两个版本**（latest 比默认装的那个新）：这样「更新」这条链路在演示
+# 模式里也演练得到 —— 装完就会看到更新按钮。harness 只有一个版本，用来对照
+# 「已是最新时不显示按钮」。
 _DEMO_INDEX = [
     {"id": "rsc4d", "name": "KMS 激活服务", "summary": "rs-c4d：KMS wire 协议服务端（v4/v5/v6）",
-     "icon": "key", "homepage": "https://github.com/Yumina0789/RSC4D", "latest": "1.0.0",
+     "icon": "key", "homepage": "https://github.com/Yumina0789/RSC4D", "latest": "1.0.1",
      "versions": {"1.0.0": {"url": "packages/rsc4d-1.0.0.tar.gz", "sha256": "0" * 64,
+                            "size": 4096, "min_core": "1.0"},
+                  "1.0.1": {"url": "packages/rsc4d-1.0.1.tar.gz", "sha256": "0" * 64,
                             "size": 4096, "min_core": "1.0"}}},
     {"id": "harness", "name": "DeepSeek Harness", "summary": "容器里的 agent 面板",
      "icon": "plug", "homepage": "https://github.com/deepseek-ai/dsh", "latest": "1.0.0",

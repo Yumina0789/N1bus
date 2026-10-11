@@ -223,11 +223,14 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/modules":
                 mods = self.app["modules"]
                 inst = mods.installed()
-                # 每一项补上**当前值**：界面要拿声明 + 当前值一起才画得出表单
+                store = mods.store()
+                # 每一项补上**当前值**：界面要拿声明 + 当前值一起才画得出表单。
+                # 顺带算出「商店里有没有更新的版本」（`update`）—— 界面据此决定显不显示
+                # 更新按钮。这个判断只能在服务端做：只有这里同时知道已装版本与商店清单。
                 for m in inst:
                     m["config"] = mods.config(m["id"]) or []
-                return self._send(200, {"installed": inst,
-                                        "store": mods.store(),
+                    m["update"] = mods.update_for(m["id"], m.get("version"), store)
+                return self._send(200, {"installed": inst, "store": store,
                                         "dir": str(mods.root)})
             if u.path == "/api/modules/store":
                 # 商店清单带 5 分钟缓存；`?fresh=1` 强制回源（界面的「刷新商店」用）
@@ -450,24 +453,30 @@ class Handler(BaseHTTPRequestHandler):
             b = self._json_body()
             mid = (b.get("id") or "").strip()
             mods = self.app["modules"]
-            ok, err, saved = mods.save_config(mid, b.get("values") or {})
+            ok, err, saved, apply_ = mods.save_config(mid, b.get("values") or {})
             self.app["audit"].write("module.config", mid or "(空)", ok,
                                     err or ("已写入 %d 项" % len(saved)), ip)
             if not ok:
                 return self._send(400, {"ok": False, "error": err})
             res = {"ok": True, "saved": saved}
-            # 配置写进 .env 只是第一步，容器得用上新值：`up -d` 会重建环境变量有
-            # 变化的那些容器。没有 compose 的模块（纯页面）跳过这一步。
+            # 写文件只是第一步，但**不是每一项都需要动容器**：只有确实变了、且声明为
+            # 需要重启的项才让容器按新值重来。`up -d` 只重建环境变量（来自 .env）真的
+            # 变了的那些服务 —— 顺带一提，没有 compose 的模块（纯页面）与纯展示项
+            # （apply=file）都跳过这一步：后者的值由模块容器按请求读挂进去的
+            # config.json，为它把服务停一下没有理由。
             meta = {m["id"]: m for m in mods.installed()}.get(mid) or {}
-            if meta.get("compose"):
+            if meta.get("compose") and apply_ == "restart":
                 r = run_action("module.install", {"id": mid}, ip,
                                self.app["probe"].audit,
                                dry=not self.app["probe"].real)
                 detail = r.get("detail") or r.get("error") or ""
-                res["apply"] = {"ok": bool(r.get("ok")), "detail": detail}
+                res["apply"] = {"ok": bool(r.get("ok")), "restarted": True, "detail": detail}
                 if not r.get("ok"):
                     res["ok"] = False
                     res["error"] = "配置已保存，但容器没重建：%s" % detail
+            else:
+                res["apply"] = {"ok": True, "restarted": False,
+                                "detail": "配置写进文件即可生效，没有重启容器"}
             return self._send(200 if res["ok"] else 500, res)
         if u.path == "/api/modules/uninstall":
             mid = (self._json_body().get("id") or "").strip()

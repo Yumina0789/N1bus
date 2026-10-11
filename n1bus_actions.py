@@ -280,13 +280,15 @@ ACTIONS = {
                    "argv": lambda p: ["apt-get", "update"], "timeout": 300},
     # 模块动作（ADR 0012 / docs/modules.md §6）：argv 全由本体拼死，路径来自
     # /opt/n1bus/modules/<id>/，模块**不提供**任何要执行的字符串。
-    # `--force-recreate`：装与改配置都是「让容器按新参数重来」的语义，而 compose 只在
-    # 它自己认为配置变了时才重建容器 —— 环境变量来自 .env，它未必每次都认得出变化。
-    # 重建会清掉容器、重新读 .env 与新挂载，代价是该模块短暂中断（秒级）。
+    # `up -d` **不带** `--force-recreate`：compose 会给每个服务算一份 config hash
+    # （环境变量来自 .env，插值后的值参与计算），只有真的变了的那几个才重建 ——
+    # 于是「改一个不进 compose 的展示项」一个容器都不动。无差别强制重建会让改个域名
+    # 也把整套容器推倒、整个模块跟着中断几秒。真要强制重来：module.down 之后再
+    # module.install（`module.restart` 只是重启进程，不会重读 compose 文件）。
     "module.install": {"label": "安装模块（起容器）",
-                       "desc": "docker compose -p n1bus-<id> up -d --force-recreate",
+                       "desc": "docker compose -p n1bus-<id> up -d",
                        "params": {"id": _val_module_id}, "danger": True,
-                       "argv": lambda p: _compose_argv(p["id"], "up", "-d", "--force-recreate"),
+                       "argv": lambda p: _compose_argv(p["id"], "up", "-d"),
                        "timeout": 300},
     "module.start": {"label": "启动模块容器",
                      "desc": "docker compose -p n1bus-<id> start",

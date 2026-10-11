@@ -2194,11 +2194,12 @@ function renderStore(st){
   body.innerHTML = mods.length ? ""
     : '<tr><td colspan="4" class="empty">商店里还没有模块</td></tr>';
   for(const m of mods){
-    const have = _modsInstalled.some(x => x.id === m.id);
+    // 已装的条目：有新版就给「更新」按钮，否则只说一句「已安装」
+    const inst = _modsInstalled.find(x => x.id === m.id);
     const tr = document.createElement("tr");
     tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>" + esc(m.summary || "") +
       "</td><td>v" + esc(m.latest || "") + "</td><td class='num'>" +
-      (have ? "<span class='hint'>已安装</span>"
+      (inst ? (updateBtn(m.id, inst.update) || "<span class='hint'>已安装</span>")
             : "<button class='act mini' onclick=\"installModule('" + esc(m.id) + "')\">安装</button>") +
       "</td>";
     body.appendChild(tr);
@@ -2208,7 +2209,12 @@ function renderStore(st){
 async function loadModules(forceStore){
   try{
     if(forceStore){          // 「刷新商店」：绕过服务端那 5 分钟清单缓存
-      renderStore(await api("/api/modules/store?fresh=1"));
+      const fresh = await api("/api/modules/store?fresh=1");
+      // 顺带把已装列表也对一次：商店表格要靠它才知道哪些装过、哪些能更新 —— 只刷商店
+      // 会留下一个可能是空的 _modsInstalled，把「已安装」错画成「安装」。这次
+      // /api/modules 读到的就是刚回源的那份清单（缓存已经在上面那次请求里更新了）。
+      _modsInstalled = (await api("/api/modules")).installed || [];
+      renderStore(fresh);
       return;
     }
     const j = await api("/api/modules");
@@ -2220,10 +2226,15 @@ async function loadModules(forceStore){
     tb.innerHTML = _modsInstalled.length ? ""
       : '<tr><td colspan="4" class="empty">还没有装任何模块</td></tr>';
     for(const m of _modsInstalled){
+      const up = m.update;          // 服务端算好的 {version, available, reason}，null = 已是最新
       const tr = document.createElement("tr");
-      tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>v" + esc(m.version || "") +
+      // 版本列写「当前 → 可升级到」：比只在按钮上写一遍更早被看见，也解释了按钮为什么在
+      const ver = "v" + esc(m.version || "") +
+        (up ? " <span class='hint'>→ v" + esc(up.version) + "</span>" : "");
+      tr.innerHTML = "<td>" + esc(m.name || m.id) + "</td><td>" + ver +
         "</td><td class='mono'>" + esc((m.page && m.page.url) || "-") + "</td>" +
-        "<td class='num'><button class='act ghost mini' onclick=\"showView('ext','" + esc(m.id) +
+        "<td class='num'>" + updateBtn(m.id, up) +
+        "<button class='act ghost mini' onclick=\"showView('ext','" + esc(m.id) +
         "',true)\">打开</button> <button class='act ghost mini' onclick=\"uninstallModule('" +
         esc(m.id) + "')\">卸载</button></td>";
       tb.appendChild(tr);
@@ -2233,14 +2244,41 @@ async function loadModules(forceStore){
   }catch(e){ toast("模块列表加载失败：" + esc(e.message), true); }
 }
 
-async function installModule(mid){
-  if(!await askConfirm("从商店安装 <b>" + esc(mid) + "</b> ？\n\n会下载模块包并核对发布方给出的校验值，" +
-      "然后启动它自己的容器。", {title: "安装模块", okText: "安装"})) return;
-  toast("正在安装 " + esc(mid) + " …（下载与校验需要一点时间）");
+/* 更新按钮。`up` 是服务端算出来的 `update`：null 表示「已是最新」**或**「商店不可达，
+   判断不了」—— 两种情况都不该显示按钮（猜一个「大概有新版」等于给个必然失败的按钮）。
+   有新版但本面板太旧时给一句文字说明，而不是让它点了才失败。 */
+function updateBtn(mid, up){
+  if(!up) return "";
+  if(!up.available)
+    return '<span class="hint" title="' + esc(up.reason || "") + '">有 v' + esc(up.version) +
+      '，需要更新面板</span> ';
+  return '<button class="act mini" onclick="installModule(\'' + esc(mid) + '\',\'' +
+    esc(up.version) + '\')">更新到 v' + esc(up.version) + '</button> ';
+}
+
+/* 装与更新走的是**同一条**后端链路：下载 → 校验 sha256 → 原地替换模块目录 → 按需重建
+   容器。区别只有两点：更新要指定目标版本，确认框里得把「配置会保留」讲清楚。
+   「原地替换」是关键：bind mount 认的是目录 inode，删掉重建会让正在跑的容器看到一片
+   空白，而 compose 因为配置没变不会重建它 —— 所以升级不是「卸载 + 安装」。 */
+async function installModule(mid, version){
+  const updating = !!version;
+  const head = updating
+    ? ("把 <b>" + esc(mid) + "</b> 更新到 <b>v" + esc(version) + "</b>")
+    : ("从商店安装 <b>" + esc(mid) + "</b>");
+  const detail = updating
+    ? "会下载新包、核对发布方给出的校验值，原地替换模块目录（<b>你改过的配置会保留</b>），" +
+      "再按需重建容器。"
+    : "会下载模块包并核对发布方给出的校验值，然后启动它自己的容器。";
+  if(!await askConfirm(head + " ？\n\n" + detail,
+      {title: updating ? "更新模块" : "安装模块", okText: updating ? "更新" : "安装"})) return;
+  toast((updating ? "正在更新 " : "正在安装 ") + esc(mid) + " …（下载与校验需要一点时间）");
+  const body = {id: mid};
+  if(version) body.version = version;
   try{
-    const j = await api("/api/modules/install", {method: "POST", body: JSON.stringify({id: mid})});
-    toast(j.ok ? ("已安装 " + esc(mid)) : ("安装失败：" + esc(j.error || "")), !j.ok);
-  }catch(e){ toast("安装失败：" + esc(e.message), true); }
+    const j = await api("/api/modules/install", {method: "POST", body: JSON.stringify(body)});
+    const done = updating ? ("已更新 " + esc(mid) + " → v" + esc(version)) : ("已安装 " + esc(mid));
+    toast(j.ok ? done : ((updating ? "更新失败：" : "安装失败：") + esc(j.error || "")), !j.ok);
+  }catch(e){ toast((updating ? "更新失败：" : "安装失败：") + esc(e.message), true); }
   loadModules(); loadAudit();
 }
 

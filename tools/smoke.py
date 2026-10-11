@@ -403,6 +403,41 @@ try:
        "演示模式安装走通：%s" % (ji.get("error"),))
     ok((ji.get("module") or {}).get("demo") is True, "演示模式不真下载，带 demo 标记")
 
+    # 「保存并应用」解的是 save_config 的四元组返回值，再按 apply 决定动不动容器。
+    # 真机上那行红字（写配置文件失败 / 容器没重建）就是从这条链路出来的，所以即使
+    # 演示模式装的模块没有 config 声明，也要把这条路走通 —— 解包写错只有真机才会炸。
+    st, body = call("/api/modules/config", "POST", {"id": "rsc4d", "values": {}}, cred=TOKEN)
+    jc = json.loads(body)
+    ok(st == 200 and jc.get("ok") is True,
+       "POST /api/modules/config 保存走通：%s" % (jc.get("error"),))
+    ok((jc.get("apply") or {}).get("restarted") is False,
+       "没有要进容器的项时一个容器都不动：%s" % (jc.get("apply"),))
+    st, _b = call("/api/modules/config", "POST", {"id": "nosuch", "values": {}}, cred=TOKEN)
+    ok(st == 400, "保存一个没装的模块 → 400（实际 %s）" % st)
+
+    # 升级：演示商店的 rsc4d 刻意留了两个版本（刚装的是 1.0.0，latest 是 1.0.1）。
+    # 界面靠已装列表里的 update 字段决定显不显示「更新」按钮 —— 这个判断在服务端做，
+    # 因为只有那里同时知道已装版本与商店清单。
+    st, body = call("/api/modules", cred=TOKEN)
+    inst = {m["id"]: m for m in json.loads(body).get("installed") or []}
+    ok((((inst.get("rsc4d") or {}).get("update")) or {}).get("version") == "1.0.1",
+       "已装列表带出可升级到的版本（界面据此显示更新按钮）：%s"
+       % ((inst.get("rsc4d") or {}).get("update"),))
+    st, body = call("/api/modules/install", "POST",
+                    {"id": "rsc4d", "version": "1.0.1"}, cred=TOKEN)
+    ju = json.loads(body)
+    ok(st == 200 and ju.get("ok") is True, "升级到 1.0.1 走通：%s" % (ju.get("error"),))
+    st, body = call("/api/modules", cred=TOKEN)
+    inst = {m["id"]: m for m in json.loads(body).get("installed") or []}
+    ok((inst.get("rsc4d") or {}).get("version") == "1.0.1",
+       "版本真的换成了 1.0.1：%s" % ((inst.get("rsc4d") or {}).get("version"),))
+    ok((inst.get("rsc4d") or {}).get("update") is None, "升到最新之后不再提示更新")
+    st, body = call("/api/modules/install", "POST",
+                    {"id": "rsc4d", "version": "1.0.0"}, cred=TOKEN)
+    jd = json.loads(body)
+    ok(st == 400 and "不支持降级" in (jd.get("error") or ""),
+       "降级被拒（要回退得先把模块卸掉）：%s" % (jd.get("error"),))
+
     print("== 模块：清单、manifest 与防穿越解包 ==")
     good, err, mods = NM.check_index({
         "schema": 1, "registry": "Yumina0789/N1bus-modules",
