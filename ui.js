@@ -659,8 +659,9 @@ async function loadSecurity(){
   document.getElementById("seOk").textContent = num(lg.accepted);
   document.getElementById("seUfwV").textContent = fw.available ? (fw.active ? "已启用" : "未启用") : "未安装";
   document.getElementById("seUfwV").className = "v " + (fw.active ? "ok-v" : "warn-v");
-  document.getElementById("seUfwN").textContent = fw.available ? ((fw.rules || []).length + " 条规则") : (fw.hint || "");
-  document.getElementById("seF2bV").textContent = f2b.available ? ((f2b.jails || []).length + " 个 jail") : "未安装";
+  document.getElementById("seUfwN").textContent = fw.available ? ((fw.rules || []).length + " 条 ufw 规则") : (fw.hint || "");
+  // 不写 "jail" 这个术语：读者未必知道它是 fail2ban 的「一套独立封禁策略」
+  document.getElementById("seF2bV").textContent = f2b.available ? ((f2b.jails || []).length + " 个防护策略") : "未安装";
   document.getElementById("seF2bV").className = "v " + (f2b.available && (f2b.jails || []).length ? "ok-v" : "warn-v");
   document.getElementById("seF2bN").textContent = f2b.available ? (f2b.jails || []).join("、") : (f2b.hint || "");
   const blocked = j.blocked || {};
@@ -741,7 +742,7 @@ async function loadSecurity(){
     document.getElementById("seEnf").innerHTML = [
       ["状态", ef.enabled ? "运行中" : "未启用"],
       // 不显示内部服务地址与命令行参数名：那是部署细节，对使用者没有意义
-      ["决策来源", ef.enabled ? "外部面板（v1m-dash）" : "未配置"],
+      ["决策来源", ef.enabled ? "KMS 面板的限流策略" : "未配置"],
       ["检查间隔", ef.interval ? dur(ef.interval) : "–"],
       ["最近一轮", last.ts ? new Date(last.ts * 1000).toLocaleString("zh-CN") : "尚未执行"],
       ["本轮封禁", (last.banned || []).join("、") || "无"],
@@ -869,11 +870,11 @@ function renderDefender(d){
     ? ("已开启 · 超过 " + num(d.threshold) + " 次") : "已关闭";
   document.getElementById("seDefInfo").innerHTML = [
     ["状态", d.enabled ? "已开启" : "已关闭"],
-    ["触发阈值", "累计失败 > " + num(d.threshold) + " 次"],
+    ["触发阈值", "累计失败 > " + num(d.threshold) + " 次（严格大于才算命中）"],
     ["巡检间隔", d.interval + " 秒"],
     ["可信来源", num(d.own_ips || 0) + " 个成功登录过的来源（永不自动封禁）"],
-    ["豁免名单", (d.exempt || []).length + " 个"],
-    ["排除网段", (d.skip || []).join("、") || "–"],
+    ["豁免名单", (d.exempt || []).length + " 个　在面板上解封会自动加入"],
+    ["排除网段", ((d.skip || []).join("、") || "–") + "　私有网段与 --allow-ip 一律不封"],
     ["最近一轮", last.ts ? (new Date(last.ts * 1000).toLocaleString("zh-CN") + "　" + lastText)
                           : "未执行"],
   ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v mono">${esc(v)}</div>`).join("") +
@@ -969,8 +970,8 @@ function renderGuard(g){
   const blocked = g.blocked || [];
   const tiers = (g.tiers || []).map(s => dur(s)).join(" → ");
   el.innerHTML = [
-    ["触发条件", num(g.limit) + " 次失败 / " + dur(g.window)],
-    ["封禁时长", tiers || "–"],
+    ["触发条件", num(g.limit) + " 次失败 / " + dur(g.window) + "　按来源 IP 计数，不分账户"],
+    ["封禁时长", (tiers || "–") + "　逐次递增，人工解封不重置档位"],
     ["跟踪来源", num(g.tracked) + " 个 IP"],
     ["当前封禁", blocked.length ? (blocked.length + " 个来源") : "无"],
   ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v mono">${esc(v)}</div>`).join("") +
@@ -980,8 +981,8 @@ function renderGuard(g){
                 onclick="unblock('${esc(b.ip)}')">解封</button></div>`).join("") : "") +
     // 这里原先贴了一整条 curl 命令。界面上不该出现这种部署细节：
     // 列表里本来就能直接点「解封」，命令行请查文档。
-    '<div class="k"></div><div class="v hint">按来源 IP 限制，不锁定账户；' +
-    '封禁期间该来源无法登录面板。</div>';
+    '<div class="k"></div><div class="v hint">按来源 IP 计数、不锁定账户；封禁期间该来源无法登录面板。' +
+    '成功登录一次即清零，连续 24 小时不再犯则档位归零。</div>';
 }
 async function unblock(ip){
   if(!await askConfirm("解封 <b>" + esc(ip) + "</b> ？\n\n失败计数清零，封禁档位保留。",
