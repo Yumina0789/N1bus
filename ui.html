@@ -309,7 +309,6 @@
         <th class="num">操作</th></tr></thead><tbody id="dkBody"></tbody></table></div>
       <details class="fold gap-md" id="dkImagesWrap">
         <summary><svg class="ico"><use href="#i-list"/></svg>镜像
-          <span class="q">容器模板，查看占用与历史构建残留</span>
           <span class="end" id="dkImagesMeta"></span></summary>
         <div class="foldbody">
           <div class="scroll h-260"><table><thead><tr><th>仓库</th><th>标签</th><th>ID</th>
@@ -401,17 +400,9 @@
 
   <div class="subview" id="sub-guard">
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-shield"/></svg>当前防护</summary>
+      <summary><svg class="ico"><use href="#i-shield"/></svg>面板登录限流</summary>
       <div class="foldbody">
-        <!-- 说明写在这里而不是 summary 里：summary 的 .q 会被 stripFoldNotes() 移除，
-             写在标题行上用户根本看不到（见 ui.js 顶部那段注释）。
-             两块并排但互不相干，各自加小标题说明它管的是什么，否则左边是 KMS 面板的
-             限流决策、右侧是面板登录限流，读者可能误认为两者是同一套机制。 -->
-        <div class="hint mb-sm">
-          「面板登录限流」决定哪些来源可以登录本面板，由本面板自行判定：同一来源 IP 在
-          5 分钟内失败 8 次即被临时拒绝，档位逐次递增。变更通过白名单动作执行并记入审计。
-        </div>
-        <div><h2>面板登录限流</h2><div class="kv" id="seGuard"></div></div>
+        <div class="kv" id="seGuard"></div>
       </div>
     </details>
 
@@ -419,13 +410,6 @@
       <summary><svg class="ico"><use href="#i-net"/></svg>防火墙端口
         <span class="end" id="sePortMeta"></span></summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          展示 ufw 的端口放行规则。规则带方向：<code class="mono">ALLOW IN</code> 与
-          <code class="mono">ALLOW OUT</code> 互不覆盖，IPv4 与 IPv6 亦各为独立规则；
-          此处按「方向 + 端口 + 协议」合并显示，因此一条记录在底层可能对应多条规则。
-          下方提示给出两类结论：服务在监听但未放行（可一键放行），以及已放行但无服务监听
-          （该规则不产生实际效果）。Docker 发布的端口绕过 ufw，单独成组，不计入「待放行」。
-        </div>
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
           <span class="hint">方向</span>
           <select id="sePortDir">
@@ -464,14 +448,6 @@
       <summary><svg class="ico"><use href="#i-shield"/></svg>自动永久封禁
         <span class="end" id="seDefMeta"></span></summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          fail2ban 以「时间窗口内的失败次数」为判据（本机：10 分钟内 4 次），对持续性低速扫描
-          不收敛 —— 实测有来源被重复封禁 19 次、累计失败 997 次后仍在尝试。本功能改以
-          <b>累计</b>失败次数为判据：超过阈值即执行 <code class="mono">ufw deny</code>
-          <b>永久</b>封禁且不自动解封，规则持久化于 <code class="mono">/etc/ufw/user.rules</code>。
-          成功登录过的来源与私有网段永不自动封禁，放行仅可通过本面板解封。
-          下表为待封禁来源（与执行共用同一判定，非估算）与处置记录（含自动巡检与手动触发）。
-        </div>
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
           <label class="chk"><input type="checkbox" id="seDefOn" onchange="defenderSet()">启用</label>
           <span class="hint" style="margin-left:12px">累计失败次数超过</span>
@@ -503,13 +479,6 @@
       <summary><svg class="ico"><use href="#i-ban"/></svg>失败来源排行
         <span class="end" id="seIPsMeta"></span></summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          数据源为 <code class="mono">/var/log/auth.log</code> 的全量记录（含轮转文件
-          <code class="mono">.1</code>），显示的次数为<b>累计值</b>而非窗口值。
-          默认仅列未封禁来源，以免已封禁记录挤占待处置项；核对历史可勾选「显示已封禁的」。
-          行内「封禁」通过白名单动作 <code class="mono">ufw.deny</code> 执行，
-          审计格式与自动封禁一致。
-        </div>
         <div class="row" style="margin-bottom:8px">
           <span class="hint" id="seIPsHint"></span>
           <span class="grow"></span>
@@ -526,11 +495,6 @@
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-users"/></svg>被猜用户名</summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          攻击者尝试过的用户名，包含不存在的账户（日志中标记为 invalid user）。
-          若其中出现<b>真实存在的账户名</b>，表明该账户已被针对性尝试 ——
-          建议改用密钥登录，或将 SSH 端口由默认的 22 变更。
-        </div>
         <div class="scroll"><table><thead><tr><th>用户名</th><th class="num">次数</th>
           </tr></thead><tbody id="seUsers"></tbody></table></div>
       </div>
@@ -540,10 +504,6 @@
       <summary><svg class="ico"><use href="#i-alert"/></svg>登录明细
         <span class="end" id="seRecentMeta"></span></summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          仅列<b>最近若干条</b>原始记录，非全量；全量统计见上方排行。
-          「最近成功」是判定误封的依据 —— 成功登录过的来源不会被自动永久封禁。
-        </div>
         <h2><svg class="ico"><use href="#i-alert"/></svg>最近失败</h2>
         <div class="scroll" style="max-height:230px"><table><thead><tr><th>时间</th><th>用户</th><th>来源</th>
           </tr></thead><tbody id="seRecent"></tbody></table></div>
@@ -557,26 +517,13 @@
   <div class="subview hidden" id="sub-svcstate">
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-shield"/></svg>SSH 配置</summary>
-      <div class="foldbody">
-        <div class="hint mb-sm">
-          <code class="mono">sshd_config</code> 中与认证相关的关键项，以及已授权的公钥数量。
-          <b>只读</b>：修改 sshd 配置需重启 sshd，配置错误将导致无法登录，
-          故不由面板代为执行。
-        </div>
-        <div class="kv wide" id="seSshd"></div>
-      </div>
+      <div class="foldbody"><div class="kv wide" id="seSshd"></div></div>
     </details>
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-alert"/></svg>fail2ban 状态
         <span class="end" id="seF2bMeta"></span></summary>
       <div class="foldbody">
-        <div class="hint mb-sm">
-          每个 jail 是一套独立的封禁策略（本机 <code class="mono">sshd</code>：10 分钟内失败 4 次，
-          封禁 1 小时）。其封禁为<b>临时</b>性质、到期自动解除，且仅统计时间窗口内的失败次数 ——
-          与上文「自动永久封禁」互补：前者针对突发爆破，后者针对低速扫描。
-          原始输出附于下方，界面抽取的计数可能随 fail2ban 版本略有差异。
-        </div>
         <div class="kv wide" id="seF2bInfo"></div>
         <pre id="seF2bRaw" style="max-height:300px"></pre>
       </div>
@@ -588,7 +535,6 @@
   <section id="tab-logs" class="hidden">
     <details class="fold">
       <summary><svg class="ico"><use href="#i-file"/></svg>日志
-        <span class="q">来源：journald 或 /var/log</span>
         <span class="end" id="lgMetaHead"></span></summary>
       <div class="foldbody">
         <div class="toolbar">
@@ -608,7 +554,6 @@
 
     <details class="fold">
       <summary><svg class="ico"><use href="#i-shield"/></svg>审计记录
-        <span class="q">记录操作者、时间与变更内容</span>
         <span class="end" id="auMeta"></span></summary>
       <div class="foldbody">
         <!-- 100 条平铺时想找某一类动作要一路翻，所以给一个按模块筛的下拉：
@@ -653,7 +598,6 @@
   <div class="subview" id="sub-maintain">
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-disk"/></svg>系统清理
-        <span class="q">先统计，再清理</span>
         <span class="end" id="sysCleanMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll"><table><thead><tr><th>项目</th><th class="num">当前占用</th>
@@ -665,7 +609,6 @@
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-file"/></svg>备份与恢复
-        <span class="q">面板内可打包下载；恢复需通过 SSH 执行</span>
         <span class="end" id="sysBkMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll"><table><thead><tr><th>内容</th>
@@ -684,14 +627,12 @@
   <div class="subview hidden" id="sub-netstore">
     <!-- 「磁盘与挂载」原先在页面最末，归到「网络与存储」这一组更合理，所以前移到这里 -->
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-disk"/></svg>磁盘与挂载
-        <span class="q">只读</span></summary>
+      <summary><svg class="ico"><use href="#i-disk"/></svg>磁盘与挂载</summary>
       <div class="foldbody" id="sysDiskBody"></div>
     </details>
 
     <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-net"/></svg>网络
-        <span class="q">只读</span></summary>
+      <summary><svg class="ico"><use href="#i-net"/></svg>网络</summary>
       <div class="foldbody" id="sysNetBody"></div>
     </details>
   </div>
@@ -699,7 +640,6 @@
   <div class="subview hidden" id="sub-syscfg">
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-play"/></svg>开机自启
-        <span class="q">受保护单元不可修改</span>
         <span class="end" id="sysBootMeta"></span></summary>
       <div class="foldbody">
         <div class="scroll h-320"><table><thead><tr><th>单元</th><th>状态</th>
@@ -713,7 +653,6 @@
 
     <details class="fold" open>
       <summary><svg class="ico"><use href="#i-clock"/></svg>系统设置
-        <span class="q">时区与 NTP 可配置；swap 仅只读展示</span>
         <span class="end" id="sysSetMeta"></span></summary>
       <div class="foldbody">
         <div id="sysSetBody"></div>
@@ -809,7 +748,6 @@
   <section id="tab-settings" class="hidden">
     <details class="fold">
       <summary><svg class="ico"><use href="#i-users"/></svg>账户
-        <span class="q">所有账户权限相同，仅在用户名与密码上区分</span>
         <span class="end" id="acMe"></span></summary>
       <div class="foldbody">
         <!-- 表单不驻留在卡片内：新增账户与修改密码均为「按钮 + 弹窗」，
@@ -844,7 +782,6 @@
 
     <details class="fold">
       <summary><svg class="ico"><use href="#i-alert"/></svg>告警与阈值
-        <span class="q">超阈值发 Webhook</span>
         <span class="end" id="alMeta"></span></summary>
       <div class="foldbody">
         <div class="row">
