@@ -95,6 +95,35 @@ def _read_env(path):
     return out
 
 
+def _sync_tree(src, dst):
+    """把 src 的内容**原地**同步进 dst：覆盖同名、删掉多余的，但不删 dst 自己。
+
+    为什么必须原地：模块目录会被 bind mount 进容器，而 Docker 在容器创建时记的是
+    目录的 inode。整个删掉再重建，挂载就指向一个**已经被删掉的目录** —— 容器里看着
+    是空的、文件看着是目录，而 compose 因为配置没变**不会重建容器**。表现是页面
+    404、config.json 写不进去（这个坑踩过一次）。
+    """
+    src, dst = Path(src), Path(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    want = {p.name for p in src.iterdir()}
+    for old in list(dst.iterdir()):
+        if old.name in want:
+            continue
+        if old.is_dir():
+            shutil.rmtree(old, ignore_errors=True)
+        else:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    for item in src.iterdir():
+        target = dst / item.name
+        if item.is_dir():
+            _sync_tree(item, target)
+        else:
+            shutil.copy2(str(item), str(target))
+
+
 def _config_value(item, raw):
     """把界面送来的一项配置校验成可以安全写进 .env 的形式。不合法抛 ModuleError。"""
     t = item["type"]
@@ -603,21 +632,17 @@ class Modules:
                 if not cf.is_file():
                     raise ModuleError("manifest 声明的 compose 文件不存在：%s"
                                       % clean["compose"]["file"])
-            # 就地落盘：把 manifest 所在目录整体当作模块根。
-            # 用户改过的配置先摘出来 —— 升级模块不该把它自己的配置一起冲掉。
+            # 就地落盘：把 manifest 所在目录当作模块根，**原地**同步进去。
+            # 不能「删掉整个目录再 move」—— bind mount 记的是 inode，换掉目录会让
+            # 正在跑的容器看到一片空白（而 compose 不会因此重建它）。
+            # 用户改过的配置先摘出来：升级模块不该把它自己的配置一起冲掉。
             dest = self.root / mid
             keep = {}
             for name in (CONFIG_ENV, CONFIG_JSON):
                 f = dest / name
                 if f.is_file():
                     keep[name] = read_text(f)
-            staging = self.root / (".new-" + mid)
-            if staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
-            shutil.move(str(mroot), str(staging))
-            if dest.exists():
-                shutil.rmtree(dest, ignore_errors=True)
-            shutil.move(str(staging), str(dest))
+            _sync_tree(mroot, dest)
             for name, text in keep.items():
                 try:
                     (dest / name).write_text(text, encoding="utf-8")
