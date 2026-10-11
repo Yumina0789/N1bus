@@ -624,6 +624,11 @@ class Modules:
                 except OSError:
                     pass
             clean["path"] = str(dest)
+            # 立刻按默认值把配置落一份。compose 里的 config.json 是**单文件挂载**，
+            # 文件不存在时 Docker 会替你建一个**目录**，之后本体再想写文件就永远是
+            # Errno 21「Is a directory」（这坑踩过一次，KMS 因此断了几分钟）。
+            # 所以不等用户点保存，装完就写出来。
+            self.save_config(mid, {})
             return True, "", clean
         except Exception as e:  # noqa: BLE001
             return False, "%s: %s" % (type(e).__name__, e), {}
