@@ -999,9 +999,11 @@ async function loadNet(){
     ? (L.ports.length + " 个监听 · 对外 " + L.exposed) : (L.hint || "");
   patchRows(document.getElementById("ptBody"), L.ports || [], p => p.proto + "|" + p.local, p => [
     // 同一行里六种异质信息，靠字号与深浅分主次：端口（主体）> 进程 > 地址 > 协议 / PID。
-    // 「可达范围」此前写成「对外（0.0.0.0）」—— 地址就在旁边那一列，纯属重复。
+    // 地址列只留 IP：后端给的 local 是「地址:端口」，而端口本来就单列，还做成了主体字，
+    // 同一个数字打两遍只会让人多看一眼确认它是不是同一个东西。
+    // 「可达范围」同理，不再重复打印地址（旁边那列就是）。
     {c: "mono cell-mini", h: esc(p.proto)},
-    {c: "mono cell-sub", h: esc(p.local)},
+    {c: "mono cell-sub", h: esc(String(p.local || "").replace(/:\d+$/, ""))},
     {c: "num mono cell-main", h: esc(p.port)},
     {c: "cell-main", h: esc(p.process || "–")},
     {c: "mono cell-mini", h: esc(p.pid || "–")},
