@@ -4,6 +4,12 @@
 
 已接受（2026-10-11）
 
+> **实现状态：未实现**（2026-10-11 核对代码）。本 ADR 定下的目标形态尚未落地：
+> KMS 与 Harness 仍硬编码在 `n1bus_kms.py` + `ui.html` 的 `tab-ext` 里，
+> `n1bus_actions.py` 的 `ACTIONS` 表没有 `module.*` 四项动作，前端 `TABS` 里那一项
+> 仍叫「扩展功能」而不是「模块」，也没有商店 / registry / 接入开关的界面或端点。
+> 完整规格见 `docs/modules.md`。
+
 ## 背景
 
 面板的「模块」页（原「扩展功能」）下只有两个子视图：KMS 与 Harness。两块都**硬编码**
