@@ -223,115 +223,15 @@
     </div>
   </section>
 
-  <!-- 扩展功能：面板不直接管理的两项能力 —— KMS 授权服务与 DeepSeek Harness。
-       两者都运行在独立容器中，在面板中各自只是一页数据（Harness 为同源 iframe 嵌入，
-       KMS 由后端只读获取 v1m-dash 的数据）。 -->
+  <!-- 扩展功能：模块商店。
+       KMS 与 Harness 原先在这里是两个写死的子视图，2026-10 已移除 —— 改由模块系统提供
+       （装上即出现；KMS 侧真正的服务端是容器里的 rs-c4d，不在面板里）。 -->
   <section id="tab-ext" class="hidden">
     <div class="subnav glass" id="subnav-ext">
-      <button data-sub="kms" class="active"><svg class="ico"><use href="#i-shield"/></svg>KMS 授权服务</button>
-      <button data-sub="harness"><svg class="ico"><use href="#i-plug"/></svg>DeepSeek Harness</button>
-      <!-- 已装模块的按钮由 syncModuleViews() 插在「添加模块」之前。
-           模块**装上即出现在这里** —— 没有单独的「接入」开关（docs/modules.md）。 -->
-      <span class="grow"></span>
-      <button data-sub="store" id="extStoreBtn"><svg class="ico"><use href="#i-plus"/></svg>添加模块</button>
+      <!-- 内置入口只剩商店；已装模块的按钮由 syncModuleViews() 插在它前面 -->
+      <button data-sub="store" id="extStoreBtn" class="active"><svg class="ico"><use href="#i-plus"/></svg>模块商店</button>
     </div>
 
-  <div class="subview" id="sub-kms">
-    <details class="fold" open>
-      <summary><svg class="ico"><use href="#i-shield"/></svg>KMS 授权服务
-        <span class="end" id="kmsMeta">–</span></summary>
-      <div class="foldbody">
-        <div class="toolbar">
-          <button class="act ghost" onclick="kmsAction('service',{action:'start'},'启动 KMS 授权服务')">
-            <svg class="ico"><use href="#i-play"/></svg>启动</button>
-          <button class="act ghost" onclick="kmsAction('service',{action:'stop'},'停止 KMS 授权服务',true)">
-            <svg class="ico"><use href="#i-stop"/></svg>停止</button>
-          <button class="act" onclick="kmsAction('service',{action:'restart'},'重启 KMS 授权服务')">
-            <svg class="ico"><use href="#i-restart"/></svg>重启</button>
-        </div>
-        <div class="grid g2">
-          <div><h2>服务状态</h2><div class="kv" id="kmsSvc"></div></div>
-          <div><h2>激活统计</h2><div class="kv" id="kmsStats"></div></div>
-        </div>
-      </div>
-    </details>
-
-    <details class="fold">
-      <summary><svg class="ico"><use href="#i-gear"/></svg>vlmcsd 配置
-        <span class="end" id="kmsCfgMeta"></span></summary>
-      <div class="foldbody">
-        <div class="toolbar">
-          <button class="act" onclick="kmsEditConfig()">
-            <svg class="ico"><use href="#i-list"/></svg>编辑配置</button>
-          <button class="act ghost" onclick="kmsAction('config_rollback',{},'回滚 vlmcsd 配置')">
-            <svg class="ico"><use href="#i-refresh"/></svg>回滚到上一份</button>
-        </div>
-        <div class="grid g2">
-          <div class="kv" id="kmsConfigA"></div>
-          <div class="kv" id="kmsConfigB"></div>
-        </div>
-      </div>
-    </details>
-
-    <details class="fold">
-      <summary><svg class="ico"><use href="#i-ban"/></svg>激活限流
-        <span class="end" id="kmsLimMeta"></span></summary>
-      <div class="foldbody">
-        <div class="grid g2">
-          <div class="kv" id="kmsLimitsA"></div>
-          <div class="kv" id="kmsLimitsB"></div>
-        </div>
-        <h2>当前封禁<span class="q" id="kmsBanMeta"></span></h2>
-        <div class="scroll" style="max-height:200px"><table><thead><tr>
-          <th>来源 IP</th><th>原因</th><th class="num">处置</th>
-          </tr></thead><tbody id="kmsBanned"></tbody></table></div>
-      </div>
-    </details>
-
-    <details class="fold">
-      <summary><svg class="ico"><use href="#i-list"/></svg>激活明细
-        <span class="end" id="kmsEvMeta"></span></summary>
-      <div class="foldbody">
-        <div class="toolbar">
-          <button class="act ghost" onclick="kmsAction('stats_prune',{},'清理过期的激活记录')">
-            <svg class="ico"><use href="#i-refresh"/></svg>清理过期记录</button>
-          <button class="act danger" onclick="kmsClearStats()">
-            <svg class="ico"><use href="#i-alert"/></svg>清空全部统计</button>
-        </div>
-        <div class="scroll" style="max-height:300px"><table><thead><tr>
-          <th>时间</th><th>来源</th><th>机器码</th><th>结果</th>
-          </tr></thead><tbody id="kmsEvents"></tbody></table></div>
-      </div>
-    </details>
-  </div>
-
-  <div class="subview hidden" id="sub-harness">
-    <div class="panel glass dsh-panel">
-      <!-- 顶部操作条与 KMS 那页保持同一套结构：标题 + 状态在 h2 上，
-           三个核心操作（启动 / 停止 / 重启）用同样的顺序与样式，
-           辅助操作靠右。两页的操作习惯因此完全一致。 -->
-      <h2><svg class="ico"><use href="#i-plug"/></svg>DeepSeek Harness
-        <span class="end" id="dshMeta">接入中…</span></h2>
-      <div class="toolbar">
-        <button class="act ghost" id="dshStart" onclick="startDsh()">
-          <svg class="ico"><use href="#i-play"/></svg>启动</button>
-        <button class="act ghost" id="dshStop" onclick="stopDsh()">
-          <svg class="ico"><use href="#i-stop"/></svg>停止</button>
-        <button class="act" id="dshRestart" onclick="restartDsh()"
-                title="docker restart —— 只重启不重建，容器里的改动会保留">
-          <svg class="ico"><use href="#i-restart"/></svg>重启</button>
-        <span class="grow"></span>
-        <button class="act ghost mini" id="dshOpen" onclick="openDsh()" disabled
-                title="在新标签页打开"><svg class="ico"><use href="#i-play"/></svg>新标签页</button>
-        <button class="act ghost mini" onclick="loadDsh(true)"
-                title="重新载入 Harness"><svg class="ico"><use href="#i-refresh"/></svg>重新载入</button>
-        <button class="act ghost mini" id="dshFull" onclick="toggleDshFocus()"
-                title="铺满整页（Esc 退出）"><svg class="ico"><use href="#i-expand"/></svg>全屏</button>
-      </div>
-      <div class="hint hidden" id="dshHint"></div>
-      <iframe id="dshFrame" title="DeepSeek Harness" referrerpolicy="no-referrer"></iframe>
-    </div>
-  </div>
   <div class="subview hidden" id="sub-store">
     <div class="panel glass">
       <h2><svg class="ico"><use href="#i-box"/></svg>模块商店

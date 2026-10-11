@@ -15,7 +15,6 @@ n1bus —— 服务器管理面板的入口。
     n1bus_security  账户、会话、限流、封禁、执法
     n1bus_probe     真机与演示两套数据源
     n1bus_tasks     计划任务与告警
-    n1bus_kms       KMS 授权服务（只读 + 白名单写转发）
     n1bus_modules   模块域（商店清单、模块包校验与解包）
     n1bus_web       HTTP 层（Handler + 页面拼装）
 
@@ -50,7 +49,6 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from n1bus_audit import Audit
-from n1bus_kms import KMSService, NIMBUS_URL, _DemoKMS
 import n1bus_modules
 from n1bus_modules import Modules
 from n1bus_probe import DemoProbe, HostProbe, Sampler
@@ -111,10 +109,6 @@ def main():
     ap.add_argument("--auto-ban-interval", type=int,
                     default=_env_int("N1BUS_AUTO_BAN_INTERVAL", AUTOBAN_INTERVAL),
                     help="巡检间隔（秒），最小 30（默认 %d）" % AUTOBAN_INTERVAL)
-    ap.add_argument("--nimbus-url", default=os.environ.get("NIMBUS_URL") or NIMBUS_URL,
-                    help="KMS 授权服务（v1m-dash）的地址，默认 %s" % NIMBUS_URL)
-    ap.add_argument("--nimbus-token", default=os.environ.get("NIMBUS_TOKEN", ""),
-                    help="上面那个面板的 token；默认自动从它的 docker 卷里读")
     ap.add_argument("--store-url", default=os.environ.get("N1BUS_STORE_URL")
                     or n1bus_modules.STORE_URL,
                     help="模块商店（registry 仓库的 GitHub Pages）地址，默认 %s"
@@ -169,8 +163,6 @@ def main():
     alerts = Alerts(data_dir, audit, probe)
     app = {"probe": probe, "sampler": sampler, "token": token, "mode": args.mode,
            "started": now_iso(), "enforcer": enforcer, "defender": defender,
-           "kms": _DemoKMS() if args.mode == "demo"
-                  else KMSService(args.nimbus_url, args.nimbus_token),
            "accounts": accounts, "audit": audit,
            "guard": LoginGuard(data_dir / "loginguard.json"),
            "tasks": tasks, "alerts": alerts,

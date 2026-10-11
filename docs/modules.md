@@ -12,8 +12,9 @@
 >
 > 还没做：
 >
-> * **KMS 与 Harness 仍硬编码在本体里**（`n1bus_kms.py` + `ui.html` 的 `tab-ext`），
->   尚未打包装进商店 —— 要等 `Yumina0789/N1bus-modules` 仓库建好、模块包发布之后；
+> * **KMS 与 Harness 的模块包** —— 原先写死在扩展页的两个子视图已于 2026-10 移除
+>   （`n1bus_kms.py` 删除、`/api/kms*` 下线），但它们还没打包装进商店，要等
+>   `Yumina0789/N1bus-modules` 仓库建好。在那之前扩展页是**空的**（期望的初始状态）。
 > * 升级、模块间依赖、registry 签名（见 §10）。
 >
 > **2026-10-11 用户确认的五条形态**（覆盖本文件早先的写法）：
@@ -262,10 +263,11 @@ registry 里若有更高版本，商店提示「可升级」（升级本身下�
 
 | 模块 | 内容 |
 |---|---|
-| **rsc4d** | 服务端 **RSC4D**（`rs-c4d`，Rust，KMS wire 协议 v4/v5/v6）；镜像 `ghcr.io/yumina0789/rsc4d`（公开），由私有仓库 `Yumina0789/RSC4D-docker` 构建；端口 `1688/tcp`；页面自带（激活统计、最近请求、启停按钮） |
-| **harness** | DeepSeek Harness —— 独立容器里的 agent 面板，页面以 iframe 嵌 `/dsh/`（与现在同一套做法，见 ADR 0008）；compose 仍由 `/opt/dsh/` 管理 |
+| **rsc4d** | KMS 服务端。**服务器上已在运行**：容器 `rs-c4d`（镜像 `nimbus:local`），KMS wire 协议端口 `1688/tcp`（发布到 `0.0.0.0`），另有 `8099/tcp` 只发布到 `127.0.0.1`，由 Caddy 以 `adkms.lolicon.fans` 反代。它有自己的界面/接口，因此模块页面走 iframe 即可 |
+| **harness** | DeepSeek Harness —— 独立容器里的 agent 面板（与 ADR 0008 同一套部署）。**它的入口是动态的**：一次性 token 换 cookie，token 每次启动才生成、只打在容器日志里。而模块系统目前只支持**静态** `page.url` —— 做这个模块之前，得先让 manifest 支持「入口 URL 由本体动态提供」（后端 `/api/dsh` 的能力已经留着） |
 
-RSC4D 上线后，**v1m-dash 与 vlmcsd 退役**，激活记录不迁移（见 ADR 0012）。
+RSC4D 上线后，**v1m-dash 与 vlmcsd 退役**，激活记录不迁移（见 ADR 0012）——
+这一步在服务器上**已经完成**。
 
 ---
 

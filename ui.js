@@ -1183,350 +1183,6 @@ async function loadAutostart(){
         ${c.autostart ? "取消开机自启" : "开机自启"}</button></td></tr>`).join("") ||
     '<tr><td colspan="4" class="empty">没有容器</td></tr>';
 }
-/* DeepSeek Harness 的进场链接与内嵌。
-   dsh 只认「一次性启动 token 换会话 cookie」这一种进场方式：没有 token，
-   /dsh/ 一律返回纯文本 401。该 token 每次启动时生成、仅输出到容器日志、
-   不落盘 —— 因此链接必须由后端实时获取（后端从日志中提取最新一条），不能在页面中硬编码。 */
-let _dshWatch = null;
-/* 盯着 iframe 里的界面什么时候真的起来。
-   为什么要盯而不是听 load 事件：那个事件在文档级 onload 就触发了，而 SPA 那时
-   还停在「Loading plugins…」。同源，读得到 contentDocument。
-   起来之后要做的事只有一件：撤掉预热态（让这一页回到正常的显示/隐藏逻辑）。
-   刻意不显示"正在加载"之类文案 —— 预热在用户查看概览时已完成，
-   实测热缓存下点开是 0.2 秒，再挂个转圈提示反而显得慢。 */
-function watchDshFrame(){
-  const box = document.getElementById("dshFrame");
-  if(!box) return;
-  if(_dshWatch) clearInterval(_dshWatch);
-  const t0 = Date.now();
-  _dshWatch = setInterval(() => {
-    let ready = false;
-    try{
-      const d = box.contentDocument;
-      const txt = d && d.body ? (d.body.innerText || "") : "";
-      ready = txt.length > 20 && !/Loading plugins/i.test(txt);
-    }catch(e){ /* 读不到（还没文档/跨源）就继续等，最多等到超时 */ }
-    if(ready || Date.now() - t0 > 90000){
-      clearInterval(_dshWatch); _dshWatch = null;
-      const sec = document.getElementById("sub-harness");
-      if(sec && currentView() !== "harness") sec.classList.remove("dsh-preload");
-    }
-  }, 1000);
-}
-/* 预热：趁用户仍在查看概览，先在后台初始化好 Harness。
-   注意不能就挂在隐藏容器里 —— 见上面 .dsh-preload 那段注释。 */
-function preloadDsh(){
-  const sec = document.getElementById("sub-harness");
-  if(!sec || currentView() === "harness") return;
-  sec.classList.add("dsh-preload");
-  loadDsh();
-}
-/* Esc 退出全屏：仅在外层 document 上监听不够 —— 用户一旦点击过 iframe 内的界面，
-   焦点即进入该文档，按键事件不会冒泡到此处。因此以同源方式为其内部 document
-   也挂一份（每次 iframe 内部导航都会换文档，靠 load 事件重新挂）。 */
-function bindFrameEsc(box){
-  if(box._dshEscBound) return;
-  box._dshEscBound = true;
-  box.addEventListener("load", () => {
-    try{
-      const d = box.contentDocument;
-      if(!d) return;
-      d.addEventListener("keydown", ev => {
-        if(ev.key === "Escape" && document.body.classList.contains("dsh-focusing")) toggleDshFocus(false);
-      });
-    }catch(e){ /* 无法获取内部文档时忽略；工具条按钮同样可退出 */ }
-  });
-}
-let DSH_URL = "", DSH_AT = 0;
-/**
- * 重启 DeepSeek Harness 容器。
- *
- * 这一页就是 DSH 的控制面，重启目标固定为 dsh —— 在这儿选"重启 caddy"没有意义。
- * 别的容器要重启去「运行 → Docker」，那里本来就有每个容器自己的按钮。
- *
- * 走已有的白名单动作 docker.restart：是**重启**不是重建，容器文件系统不动、
- * 容器里的改动不会丢。想让改过的 /opt/dsh/.env 生效光靠它不够（Docker 只在创建容器时
- * 注入环境变量），那条路走 /opt/dsh/change-key.sh。
- */
-/* Harness 的启动 / 停止 / 重启。三者只差一个 docker 动作名和事后的等待时间，
-   合成一处 —— 复制三遍的话，以后改提示文案要改三个地方。
-   与 KMS 那页的操作按钮保持同样的顺序和样式（见界面上的「启动 / 停止 / 重启」）。 */
-async function dshPower(action){
-  const META = {
-    start:   {label: "启动", btn: "dshStart",   wait: 6000},
-    stop:    {label: "停止", btn: "dshStop",    wait: 0},
-    restart: {label: "重启", btn: "dshRestart", wait: 8000},
-  }[action];
-  if(!META) return;
-  if(action === "stop" && !await askConfirm(
-      "停止 <b>DeepSeek Harness</b> 容器？<br><br>容器停止后本页将无法访问，需点击「启动」恢复。",
-      {title: "停止 DeepSeek Harness", danger: true, okText: "停止"})) return;
-  const btn = document.getElementById(META.btn);
-  const hint = document.getElementById("dshHint");
-  if(btn) btn.disabled = true;
-  if(hint){ hint.textContent = "正在" + META.label + " dsh …"; hint.classList.remove("hidden"); }
-  try{
-    const j = await api("/api/action", {method:"POST",
-      body: JSON.stringify({name: "docker." + action, params: {name: "dsh"}})});
-    const detail = j.error || j.detail || "";
-    toast(j.ok ? ("已" + META.label + " dsh") : (META.label + "失败：" + detail), !j.ok);
-    if(j.ok){
-      if(action === "stop"){
-        if(hint) hint.textContent = "容器已停止，界面无法访问；点击「启动」可恢复。";
-      }else{
-        if(hint) hint.textContent = "容器正在" + META.label + "，恢复后将自动获取新的入口链接…";
-        // dsh 重启会换一次性 token；到点重新取一次
-        setTimeout(() => { loadDsh(true); }, META.wait);
-      }
-    }else if(hint){
-      hint.textContent = META.label + "失败：" + detail;
-    }
-  }catch(e){
-    if(hint) hint.textContent = "";
-    toast(META.label + "失败：" + e.message, true);
-  }finally{
-    setTimeout(() => { if(btn) btn.disabled = false; }, 12000);
-  }
-}
-function startDsh(){ return dshPower("start"); }
-function stopDsh(){ return dshPower("stop"); }
-function restartDsh(){ return dshPower("restart"); }
-
-/* --- KMS 授权服务（数据来自 v1m-dash）------------------------------- */
-/* 合并之后对外只有一个面板，但 KMS 的数据仍由它原来的进程提供：那个进程同时管着
-   vlmcsd 的 ini、supervisord 的进程控制与激活日志解析。所以这里只做展示，
-   与 DeepSeek Harness 采用同一思路 —— 都作为「面板中的一页」，不伪装为自身实现。 */
-/* vlmcsd 配置项的中文标签。展示与编辑表单共用这一份 —— 两处各写一遍的话，
-   改了一处忘了另一处，界面上就会出现同一个键两种叫法。
-   键名以真机的 vlmcsd.ini 为准（是 MaxIdleTime / WhitelistingLevel，不是
-   ConnectionTimeout / WhiteListingLevel）。 */
-const KMS_CFG_CN = {
-  Port: "客户端端口", Listen: "监听地址", MaxWorkers: "并发上限",
-  MaxIdleTime: "空闲断开（秒）", WhitelistingLevel: "白名单级别",
-  CheckClientTime: "客户端校时", LogFile: "日志去向", LogVerbose: "记录激活明细",
-};
-async function loadKms(){
-  const j = await api("/api/kms");
-  const sm = j.summary || {}, lim = j.limits || {};
-  const svc = sm.service || {}, st = sm.stats || {};
-  const box = id => document.getElementById(id);
-  const rowsHtml = pairs => pairs.map(([k, v]) =>
-    `<div class="k">${esc(k)}</div><div class="v mono">${esc(v ?? "–")}</div>`).join("");
-  /* 一组 kv 对半分成两列。所有卡片都用这一种排布 —— 之前第一张是两列、其余是单列，
-     同一页里两种密度，看着不整齐。 */
-  const kv2 = (pairs, a, b) => {
-    const half = Math.ceil(pairs.length / 2);
-    if(box(a)) box(a).innerHTML = rowsHtml(pairs.slice(0, half));
-    if(box(b)) box(b).innerHTML = rowsHtml(pairs.slice(half));
-  };
-  // 时长文本：原样透传会把英文 "(up 1 天 9 小时)" 带进界面
-  const upText = t => String(t || "").replace(/\s*\(up\s*/i, " · 已运行 ").replace(/\)$/, "");
-
-  box("kmsMeta").textContent = sm.available ? (svc.running ? "运行中" : "已停止") : "不可用";
-  // 「服务状态」「激活统计」本身就是并排的两块，各自的 kv 内部是单列，不再对半切
-  if(box("kmsSvc")){
-    box("kmsSvc").innerHTML = rowsHtml(sm.available ? [
-      ["运行状态", svc.running ? "运行中" : "已停止"],
-      ["服务单元", svc.unit || "–"],
-      ["启动于", upText(svc.since)],
-      ["版本", svc.version || "–"],
-    ] : [["状态", sm.hint || "读不到数据"]]);
-  }
-  if(box("kmsStats")){
-    box("kmsStats").innerHTML = rowsHtml(sm.available ? [
-      ["累计激活", num(st.total || 0) + " 次"],
-      ["今日", num(st.today || 0) + " 次"],
-      ["30 天客户端", num(st.clients_30d || 0) + " 个"],
-      ["最近一次", st.last || "–"],
-    ] : [["状态", "–"]]);
-  }
-
-  /* --- vlmcsd 配置：键名配中文标签，两列排 --- */
-  const cfg = sm.config || {};
-  const ck = Object.keys(cfg);
-  if(box("kmsCfgMeta")) box("kmsCfgMeta").textContent = ck.length ? (ck.length + " 项") : "";
-  kv2(ck.map(k => [KMS_CFG_CN[k] || k, cfg[k]]), "kmsConfigA", "kmsConfigB");
-
-  /* --- 激活限流 --- */
-  if(box("kmsLimMeta")){
-    box("kmsLimMeta").textContent = lim.available
-      ? (lim.enabled ? ("每" + (lim.window_text || "天") + " " + num(lim.limit) + " 次") : "已关闭")
-      : "不可用";
-  }
-  kv2(lim.available ? [
-    ["限流状态", lim.enabled ? "已启用" : "已关闭"],
-    ["触发条件", "单个来源在" + (lim.window_text || "同一周期") + "内超过 " + num(lim.limit) + " 次"],
-    ["封禁时长", lim.ban_hours ? dur(lim.ban_hours * 3600) : "不限制"],
-    ["待执行", "封 " + (lim.pending_ban || []).length + " · 解 " + (lim.pending_unban || []).length],
-    ["豁免网段", (lim.skip || []).join("、") || "–"],
-  ] : [["状态", lim.hint || "读不到数据"]], "kmsLimitsA", "kmsLimitsB");
-
-  const banned = lim.banned || [];
-  if(box("kmsBanMeta")) box("kmsBanMeta").textContent = banned.length ? (banned.length + " 个来源") : "";
-  if(box("kmsBanned")){
-    const why = {};
-    (lim.pending_ban || []).forEach(x => { why[x.ip] = x.detail || x.reason || ""; });
-    (lim.log || []).forEach(x => { if(x.action === "ban" && !why[x.ip]) why[x.ip] = x.detail || ""; });
-    box("kmsBanned").innerHTML = banned.map(ip =>
-      `<tr><td class="mono">${esc(ip)}</td><td class="hint">${esc(why[ip] || "—")}</td>
-        <td class="num"><button class="act ghost mini"
-          onclick="kmsAction('unban',{ip:'${esc(ip)}'},'解除 ${esc(ip)} 的激活限流封禁')">解除封禁</button>
-        </td></tr>`).join("")
-      || '<tr><td colspan="3" class="empty">当前没有封禁中的来源</td></tr>';
-  }
-
-  /* --- 激活明细 --- */
-  const evs = sm.events || [];
-  if(box("kmsEvMeta")) box("kmsEvMeta").textContent = evs.length ? ("最近 " + evs.length + " 条") : "";
-  if(box("kmsEvents")){
-    box("kmsEvents").innerHTML = evs.map(x =>
-      `<tr><td class="mono hint">${esc(x.t || "")}</td><td class="mono">${esc(x.ip || "")}</td>
-        <td class="mono hint">${esc(String(x.cmid || "").slice(0, 20))}</td>
-        <td>${x.ok ? dot("ok", "成功") : dot("warn", "失败")}</td></tr>`).join("")
-      || '<tr><td colspan="4" class="empty">还没有激活记录</td></tr>';
-  }
-}
-/* KMS 的写操作统一走这里：一次确认 + 一次转发 + 刷新。
-   面板自己不实现这些动作，它们由 v1m-dash 执行（见 n1bus.py 的 KMS_WRITES）。 */
-async function kmsAction(op, params, label, danger){
-  // 只有会中断服务的操作（停止、清空统计）才拦一道；启动与重启属于恢复性操作，
-  // 点错也就是多等十几秒 —— 与 Harness 那页用同一条规则。
-  if(danger && !await askConfirm("确认" + esc(label || op) + " ？<br><br>"
-        + "该操作会改变 KMS 服务状态，结果记入审计。",
-        {title: "KMS 授权服务", danger: true, okText: "执行"})) return;
-  try{
-    const j = await api("/api/kms/action", {method: "POST",
-                                            body: JSON.stringify({op, params: params || {}})});
-    if(j.ok) toast(esc(label || op) + " 已完成");
-    else toast(esc(label || op) + " 失败：" + esc(j.error || (j.errors || []).join("；") || ""), true);
-    loadKms();
-  }catch(e){ toast("执行失败：" + esc(e.message), true); }
-}
-async function kmsEditConfig(){
-  const j = await api("/api/kms");
-  const cfg = ((j.summary || {}).config) || {};
-  const keys = Object.keys(cfg);
-  if(!keys.length) return toast("无法读取 vlmcsd 配置，不能编辑", true);
-  // 字段直接从当前配置中生成，不硬编码一份列表 —— 真机的键名是 MaxIdleTime /
-  // WhitelistingLevel，值与 ini 里原样一致（false/true 而不是 0/1）。
-  // 若硬编码该列表，键名不一致时会出现「已保存但未生效」这类难以定位的问题。
-  const f = await askForm(
-    "保存后会自动重载；只有改 <b>Port</b> 或 <b>Listen</b> 才会重启进程。",
-    keys.map(k => ({key: k, label: (KMS_CFG_CN[k] ? KMS_CFG_CN[k] + "（" + k + "）" : k),
-                    value: cfg[k] != null ? String(cfg[k]) : ""})),
-    {title: "vlmcsd 配置", okText: "保存"});
-  if(!f) return;
-  // 只提交真正改动过的项，以免重写整个 ini
-  const params = {};
-  keys.forEach(k => {
-    const v = String(f[k] == null ? "" : f[k]).trim();
-    if(v !== "" && v !== String(cfg[k])) params[k] = v;
-  });
-  if(!Object.keys(params).length) return toast("没有改动");
-  await kmsAction("config", params, "保存 vlmcsd 配置");
-}
-async function kmsClearStats(){
-  if(!await askConfirm("<b>清空全部激活统计</b>？<br><br>记录不可恢复，限流判断也会从零开始。",
-                       {title: "清空统计", danger: true, okText: "确认清空"})) return;
-  await kmsAction("stats_clear", {confirm: true}, "清空激活统计");
-}
-async function loadDsh(force){
-  const meta = document.getElementById("dshMeta");
-  const hint = document.getElementById("dshHint");
-  const btn  = document.getElementById("dshOpen");
-  const box  = document.getElementById("dshFrame");
-  if(!meta || !box) return;
-  // 切来切去不必每次都问后端：刚拿到过就直接用。
-  // （容器重启会换 token，那时点「重新载入」即可。）
-  if(DSH_URL && force !== true && Date.now() - DSH_AT < 60000) return;
-  try{
-    const j = await api("/api/dsh");
-    DSH_AT = Date.now();
-    DSH_URL = j.url || "";
-    if(DSH_URL){
-      meta.textContent = j.state || "running";
-      meta.classList.remove("bad");
-      hint.classList.add("hidden");
-      btn.disabled = false;
-      // 只在「链接变了」（容器重启换了 token，或首次进来）时才动 iframe。
-      // 否则每次切回该视图都会把 Harness 整个重载一遍 —— 正在运行的会话即会中断。
-      if(force === true || box.getAttribute("src") !== DSH_URL){
-        box.setAttribute("src", DSH_URL);
-        // 这里主动起轮询，而不是给 iframe 挂 onload：
-        // iframe 在 HTML 里就位、脚本在页面底部，初始 about:blank 的 load 事件
-        // 会赶在函数定义之前触发，挂 onload 只会得到一个 ReferenceError。
-        watchDshFrame();
-        bindFrameEsc(box);
-        sizeDshFrame();
-      }
-    }else{
-      DSH_URL = "";
-      meta.textContent = "未接入";
-      meta.classList.add("bad");
-      hint.textContent = j.hint || "无法获取入口链接";
-      hint.classList.remove("hidden");
-      btn.disabled = true;
-      box.removeAttribute("src");
-    }
-  }catch(e){
-    DSH_URL = "";
-    meta.textContent = "未接入";
-    meta.classList.add("bad");
-    hint.textContent = "读取失败：" + (e && e.message ? e.message : e);
-    hint.classList.remove("hidden");
-    btn.disabled = true;
-    box.removeAttribute("src");
-  }
-}
-function openDsh(){
-  if(!DSH_URL){ toast("暂无可用入口链接", true); return; }
-  // 新标签页打开：token 在 URL 中，使用 noopener 避免将 opener 交出
-  window.open(DSH_URL, "_blank", "noopener");
-}
-/* 给 iframe 算一个**确定**的高度。
-   为什么不靠 CSS：手机端 N1bus 是「.shell 改 column + 高度靠 min-height」的布局，
-   整条链给不出确定高度，`height:100%` 会退化成 auto，iframe 就只剩 min-height
-   那一小块（实测 340×360 —— DSH 界面严重变形即由该原因导致）。
-   这里直接按视口减掉实际占用，简单可靠，窗口怎么变都跟着变。 */
-function sizeDshFrame(){
-  const box = document.getElementById("dshFrame");
-  if(!box) return;
-  // 卡片顶部现在有两行：h2 标题 + toolbar 操作条（原先是单行 .dsh-bar）。
-  // 测量它们的实际高度而非硬编码数值 —— 操作条中的按钮数量还会变化。
-  const head = document.querySelector("#sub-harness h2");
-  const bar = document.querySelector("#sub-harness .toolbar");
-  const headH = head ? head.getBoundingClientRect().height : 20;
-  const barH = bar ? bar.getBoundingClientRect().height : 40;
-  let reserved = headH + barH + 48;               // 标题 + 操作条 + 卡片自己的内边距
-  if(!document.body.classList.contains("dsh-focusing")){
-    const side = document.querySelector(".side");
-    const topbar = document.querySelector(".topbar");
-    if(side && window.innerWidth < 900) reserved += side.getBoundingClientRect().height;
-    if(topbar) reserved += topbar.getBoundingClientRect().height;
-    reserved += 34;                               // main / panel 的上下 padding
-  }
-  box.style.height = Math.max(300, Math.round(window.innerHeight - reserved)) + "px";
-}
-window.addEventListener("resize", sizeDshFrame);
-/* 沉浸模式：把侧边栏和顶栏收起来，只留 Harness 这张卡片铺满当前页面。
-   仅为「覆盖当前页面」，并非浏览器原生全屏 —— 后者需要用户手势授权，且会切换整个窗口，
-   返回时易被误认为页面已丢失。按钮文字与样式随状态变化，Esc 也可退出。 */
-function toggleDshFocus(on){
-  const btn = document.getElementById("dshFull");
-  const next = (typeof on === "boolean") ? on : !document.body.classList.contains("dsh-focusing");
-  document.body.classList.toggle("dsh-focusing", next);
-  if(btn){
-    btn.innerHTML = next
-      ? '<svg class="ico"><use href="#i-collapse"/></svg>退出全屏'
-      : '<svg class="ico"><use href="#i-expand"/></svg>全屏';
-    btn.title = next ? "退出全屏（Esc）" : "铺满整页（Esc 退出）";
-    btn.classList.toggle("ghost", !next);   // 全屏时按钮变实心，好找
-  }
-  sizeDshFrame();                           // 沉浸/退出都会改变可用高度
-}
-document.addEventListener("keydown", e => {
-  if(e.key === "Escape" && document.body.classList.contains("dsh-focusing")) toggleDshFocus(false);
-});
 async function loadSysSettings(){
   const j = await api("/api/system_settings");
   const el = document.getElementById("sysSetBody");
@@ -2384,8 +2040,7 @@ function moduleIcon(m){
   return "i-plug";            // 图标集里没有就退回通用图标，绝不加载外部 SVG
 }
 
-/* 把已装模块的按钮与页面补齐。内置的 kms / harness 由 HTML 提供，这里跳过它们。
-   每次全部重建：卸载之后按钮与 iframe 必须一起消失。 */
+/* 把已装模块的按钮与页面补齐。每次全部重建：卸载之后按钮与 iframe 必须一起消失。 */
 function syncModuleViews(list){
   const nav = document.getElementById("subnav-ext");
   const host = document.getElementById("extMods");
@@ -2393,11 +2048,11 @@ function syncModuleViews(list){
   if(!nav || !host || !anchor) return;
   host.innerHTML = "";
   for(const b of Array.from(nav.querySelectorAll("button[data-dyn]"))) b.remove();
-  SUBS.ext = ["kms", "harness", "store"];
+  SUBS.ext = ["store"];
   for(const id of SUBS.ext) SUB_OWNER[id] = "ext";
   for(const m of list){
     const mid = m.id;
-    if(!mid || SUBS.ext.includes(mid)) continue;    // kms / harness 用内置的那两个视图
+    if(!mid || SUBS.ext.includes(mid)) continue;    // 商店本身不是模块，别重复加
     SUBS.ext.push(mid);
     SUB_OWNER[mid] = "ext";
     const ic = moduleIcon(m);
@@ -2521,8 +2176,6 @@ const LOADER_FN = {
   cleanup: loadCleanup,
   backup: loadBackup,
   files: () => loadFiles(FMPATH),
-  dsh: loadDsh,
-  kms: loadKms,
   modules: loadModules,
   netinfo: loadNetInfo,
   autostart: loadAutostart,
@@ -2544,11 +2197,7 @@ const LOADER_FN = {
    卡片就能平铺展开。参考 1Panel 的做法 —— 它不折叠，靠的是每页只放少量卡片。 */
 const VIEWS = {
   overview: [{k: "overview"}],
-  // Harness 这个视图只有一块内容：把容器里的 agent 面板嵌进 iframe
-  // —— 扩展功能：KMS 授权服务与 DeepSeek Harness ——
-  kms: [{k: "kms"}, {k: "modules"}],
-  harness: [{k: "dsh"}, {k: "modules"}],
-  // 模块商店。已装模块各自的页面由 syncModuleViews() 动态建（见下）
+  // —— 扩展功能：模块商店。已装模块各自的页面由 syncModuleViews() 动态建（见下）——
   store: [{k: "modules"}],
   // —— 运行 ——
   services: [{k: "services"}],
@@ -2570,12 +2219,12 @@ const VIEWS = {
 };
 /* 哪些主标签带子视图。子视图 id 必须全局唯一 —— 全局的 subview 容器靠它定位。 */
 const SUBS = {
-  ext: ["kms", "harness", "store"],
+  ext: ["store"],
   runtime: ["services", "docker", "net"],
   security: ["guard", "faillog", "svcstate"],
   system: ["maintain", "netstore", "syscfg"],
 };
-const SUB_DEFAULT = {ext: "kms", runtime: "services",
+const SUB_DEFAULT = {ext: "store", runtime: "services",
                      security: "guard", system: "maintain"};
 /* 子视图 id → 它属于哪个主标签，由 SUBS 推出来，以免两处各自编写而失去同步 */
 const SUB_OWNER = {};
@@ -2586,7 +2235,6 @@ const curSub = {};
 /* 各视图自己的刷新间隔（毫秒）；没列出来的（日志）不自动刷新 */
 const REFRESH = {overview: 5000, services: 10000, docker: 10000, net: 15000,
                  guard: 15000, faillog: 15000, svcstate: 30000,
-                 kms: 60000,
                  maintain: 60000, netstore: 60000, syscfg: 60000,
                  accounts: 30000, tasks: 30000};
 let lastPoll = {};
@@ -2632,8 +2280,6 @@ function viewLabel(main, sub){
    只有这种调用才「钉住」视图，让 boot() 的收尾落位不再覆盖它。 */
 function showView(main, sub, fromUser){
   if(fromUser) viewPinned = true;
-  // 沉浸模式下离开 Harness 就自动退出，避免将整个页面锁定在该页面上
-  if(document.body.classList.contains("dsh-focusing")) toggleDshFocus(false);
   curTab = main;
   // 子视图：先把这一页当前该看哪个确定下来（每页各记各的），再只显示它、隐藏其余
   const subs = SUBS[main];
@@ -2650,9 +2296,6 @@ function showView(main, sub, fromUser){
     if(navBtn) try{ navBtn.scrollIntoView({block:"nearest", inline:"nearest"}); }catch(e){}
   }
   for(const id of TABS) document.getElementById("tab-" + id).classList.toggle("hidden", id !== main);
-  // 真要展示 Harness 了，撤掉预热态（那层是 opacity:0 的，留着反而看不见）
-  const hs = document.getElementById("sub-harness");
-  if(hs) hs.classList.remove("dsh-preload");
   // 三页各有自己的子导航，标记激活项时要按 data-sub 找，不能只认某一个容器
   document.querySelectorAll(".subnav button").forEach(x =>
     x.classList.toggle("active", x.dataset.sub === curSub[main]));
@@ -2728,9 +2371,6 @@ async function boot(){
     // 这一行以前是无条件的，于是「刷新后马上点别的栏」会被拽回主页。
     if(!viewPinned) showView("overview");
     startPoll();
-    // 面板自己先热一遍 Harness：它首次要拉一批前端插件（实测十几秒），
-    // 在空闲时于后台加载完成，用户打开时即可直接使用。不打开也没有额外成本 —— 仅一次请求 + 一次加载。
-    setTimeout(() => { try{ preloadDsh(); }catch(e){} }, 4000);
   }catch(e){ if(e.message !== "unauthorized") toast("加载失败：" + esc(e.message), true); }
 }
 (async () => {

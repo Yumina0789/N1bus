@@ -232,58 +232,6 @@ button.act.ghost{background:var(--card);color:var(--dim);border-color:var(--line
 button.act.ghost:hover{color:var(--accent);border-color:rgba(43,127,255,.45);background:var(--card)}
 button.act.danger{background:var(--card);color:var(--bad);border-color:var(--line);font-weight:500;box-shadow:none}
 button.act.danger:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
-/* Harness 页：一条细工具条 + 尽量大的 iframe。
-   这个页面用于实际操作，而非阅读说明 —— 因此常驻文案全部去掉，
-   仅在确实出错（无法获取链接）时显示一行提示。
-   高度走 flex 撑满 main，不再用 100vh 硬减，窗口大小变了也不会错位。 */
-/* 高度交给 JS 按视口算（见 sizeDshFrame）。
-   不要使用 height:100% —— 手机端 N1bus 的 flex 链（.shell 是 column、高度靠
-   min-height 撑着）给不出「确定高度」，百分比会退化成 auto，iframe 就只剩
-   min-height 那一小块：实测手机上仅 340×360，DSH 界面因此严重变形。 */
-#sub-harness{display:flex;flex-direction:column}
-#sub-harness .dsh-panel{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;
-  margin-bottom:0;padding:12px 14px}
-/* 工具条：核心操作（启动 / 停止 / 重启）在左、辅助操作在右，样式沿用全局 .toolbar。
-   注意：这里**不能**出现没有选择器的声明块。CSS 解析器遇到裸声明不会报错停下，
-   而是把它当作下一条规则的选择器继续拼，一直拼到 #dshFrame 的 `{` 为止 ——
-   于是 #dshFrame 的 border / border-radius / background 整条失效，iframe 回退到
-   浏览器默认的 `2px inset` 深色边框，界面上就是那一圈突兀的线。 */
-#dshFrame{flex:1 1 auto;min-height:360px;width:100%;border:1px solid var(--line);
-  border-radius:12px;background:var(--card)}
-/* 沉浸模式：把外围（侧边栏、顶栏）收起来，只留 Harness 这一张卡片铺满当前页面。
-   刻意不用浏览器的 Fullscreen API —— 该 API 需要用户手势授权，且会将整个窗口
-   切换出去；这里仅为「覆盖当前页面」，Esc 或工具条按钮即可恢复原状。
-   用「隐藏外围 + 撑满」而不是 position:fixed 覆盖：后者会被祖先的
-   backdrop-filter/transform 之类的包含块影响，无法准确计算覆盖范围。 */
-body.dsh-focusing{overflow:hidden}
-/* 全屏时把外壳全部收起。此前只隐藏侧栏与顶栏 —— 那时 Harness 是独立标签页，
-   没有子导航；现在它成为「扩展功能」下的子视图，那条 .subnav 会持续占用约 45px，
-   导致「全屏」并未真正铺满。 */
-body.dsh-focusing .side,
-body.dsh-focusing .topbar,
-body.dsh-focusing .subnav{display:none!important}
-/* 真正铺满：去掉 main 的外边距与卡片的边框/圆角/阴影。
-   工具条要留着（退出全屏的按钮在上面），只给它留一点内边距。 */
-body.dsh-focusing main{padding:0}
-body.dsh-focusing #sub-harness{height:100vh}
-body.dsh-focusing #sub-harness .dsh-panel{height:100%;margin:0;padding:8px 8px 0;
-  border:none;border-radius:0;box-shadow:none;background:none;
-  -webkit-backdrop-filter:none;backdrop-filter:none}
-body.dsh-focusing #dshFrame{border-radius:8px 8px 0 0}
-/* 预热态：让 iframe 在「看得见但透明」的状态下把前端初始化完。
-   为什么不能直接挂在 .hidden（display:none）里预热 —— 那样浏览器不会真正加载它，
-   实测空等 10 秒，用户点开时仍需重新初始化。opacity:0 保留渲染帧（DSH 的初始化要用到），
-   z-index:-1 压到最底层、pointer-events:none 不挡点击，用户看不到也碰不到。 */
-#sub-harness.dsh-preload{display:block!important;position:fixed;inset:0;z-index:-1;
-  opacity:0;pointer-events:none}
-/* 窄屏：标题和状态让位，保证三个按钮留在同一行。
-   不这么做的话，工具栏一挤就会把「全屏」挤到第二行去。 */
-@media (max-width:640px){
-}
-/* 手机上让 DSH 自己按窄屏排（它自带响应式：左侧栏会收成一排图标）。
-   刻意**不**给 iframe 设死宽度让它横向拖 —— 手机上左右拖动本身就不符合操作习惯，
-   适配单屏显示更符合移动端使用习惯。 */
-
 /* 模块页面：模块自己的 UI 以同源 iframe 嵌入（本体不代理它的流量，也不替它认证）。
    这里用确定的 calc 高度而不是父级 flex/百分比 —— 与 #dshFrame 那边同样的理由：
    移动端的 flex 链给不出「确定高度」，百分比会退化成 auto，iframe 就只剩 min-height。 */

@@ -222,8 +222,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, p.docker.list())
             if u.path == "/api/dsh":
                 return self._send(200, p.docker.dsh())
-            if u.path == "/api/kms":
-                return self._send(200, self.app["kms"].all())
             if u.path == "/api/modules":
                 mods = self.app["modules"]
                 return self._send(200, {"installed": mods.installed(),
@@ -479,15 +477,6 @@ class Handler(BaseHTTPRequestHandler):
             self.app["audit"].write("defender.exempt", target, True,
                                     "从豁免名单" + ("加入（不再自动封这个地址）" if on else "移除"), ip)
             return self._send(200, {"ok": True, "exempt": ex})
-
-        # --- KMS 授权服务的写操作 ------------------------------------------
-        # 面板这边不自己实现，转发给原面板（它管着 vlmcsd 的 ini 与 supervisord）。
-        # 操作名走 KMS_WRITES 白名单，每次调用都写审计。
-        if u.path == "/api/kms/action":
-            b = self._json_body()
-            r = self.app["kms"].action((b.get("op") or "").strip(),
-                                       b.get("params") or {}, self.app["audit"], ip)
-            return self._send(200 if r.get("ok") else 400, r)
 
         # 解封的唯一入口：撤销规则 + 写入豁免。若拆成两个接口，前端漏调其中一个会导致
         # "解封后下一轮巡检立即重新封禁"。
