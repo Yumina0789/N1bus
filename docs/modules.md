@@ -69,12 +69,15 @@
 - 文件管理器、任务、告警、审计
 - **模块框架**（见 §6）
 
-**搬出去**（变成模块）：
+**已经搬出去**（2026-10，写死的两个视图连同后端一起删了；**尚未打包**）：
 
-- KMS 页（`sub-kms` + `loadKms()` + `KMSService` + `KMS_WRITES` + `/api/kms*`）
-- Harness 页（`sub-harness` + `#dshFrame` + `/api/dsh`）
+- KMS 页：`sub-kms` + `loadKms()` + `n1bus_kms.py`（`KMSService` / `KMS_WRITES`）+ `/api/kms*`
+  —— 全套删除。KMS 现在由容器 `rs-c4d` 自己承担，面板不再代取数据
+- Harness 页：`sub-harness` + `#dshFrame` + 前端那一整块逻辑 —— 删除；
+  但后端 `/api/dsh` **刻意保留**（将来 `harness` 模块的入口来源，见 §9）
 
-> 搬运量实测：`n1bus.py` 里 6 处分散点、`ui.html` 里约 80 行 JS + 一个子视图。
+> 搬运量实测：原先 `n1bus.py` 里 6 处分散点、`ui.html` 里约 80 行 JS + 一个子视图，
+> 实际删除时 `ui.js` 掉了 344 行、`n1bus_kms.py` 整个文件（208 行）不再需要。
 
 ---
 
