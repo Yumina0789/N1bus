@@ -511,12 +511,20 @@ function filterUnits(){
     const st = svcState(u);
     return [
       {c: "mono", h: esc(u.unit)},
-      {h: dot(st.c, st.t + "（" + u.active + (u.sub ? " / " + u.sub : "") + "）")},
+      // 状态列：中文状态已经说清了，就别把同一个词再说一遍 —— 此前会渲染成
+      // 「失败（failed / failed）」。active 与 sub 不同时（如 active / exited）
+      // 才补一个括注，那时它才真有信息量。
+      {h: dot(st.c, st.t + (u.sub && u.sub !== u.active
+            ? "（" + u.active + " / " + u.sub + "）"
+            : (u.active && u.active !== u.sub ? "（" + u.active + "）" : "")))},
       {c: "hint", s: "white-space:normal", h: esc(u.desc)},
+      // 按运行状态只给有意义的动作：跑着的服务不需要「启动」，停着的不需要「停止」。
+      // 此前 150 行每行都平摆三个按钮，三分之二是废的（容器页早就这么做，这里没跟上）。
       {c: "num", a: 'onclick="event.stopPropagation()"', h:
-        `<button class="act warn mini" onclick="runAction('service.restart',{unit:'${esc(u.unit)}'})">重启</button>
-        <button class="act warn mini" onclick="runAction('service.stop',{unit:'${esc(u.unit)}'})">停止</button>
-        <button class="act ghost mini" onclick="runAction('service.start',{unit:'${esc(u.unit)}'})">启动</button>`},
+        (u.active === "active"
+          ? `<button class="act warn mini" onclick="runAction('service.restart',{unit:'${esc(u.unit)}'})">重启</button>
+             <button class="act warn mini" onclick="runAction('service.stop',{unit:'${esc(u.unit)}'})">停止</button>`
+          : `<button class="act ghost mini" onclick="runAction('service.start',{unit:'${esc(u.unit)}'})">启动</button>`)},
     ];
   }, u => `onclick="openUnit('${esc(u.unit)}')" style="cursor:pointer"` +
           (u.active === "failed" ? ' class="row-bad"' : ""),
