@@ -78,8 +78,15 @@ function svcState(u){
 function dot(kind, text){
   /* 文字不再只躺在 data-full 里：那样状态列就只剩一颗色点，
      不悬停/不长按气泡根本分不出「已封禁」和「未封禁」。渲染交给 CSS，
-     这样 20 多个调用点一个都不用改。 */
-  return `<span class="dot-tag ${kind}" data-full="${esc(text)}"></span>`;
+     这样 20 多个调用点一个都不用改。
+
+     data-short 是给窄屏用的：手机版状态列只给得出约 100px，而
+     「运行（active / running）」要 152px —— 怎么排都会被 ellipsis 切掉尾巴。
+     把中文括号里的补注摘掉正好够用，完整信息仍在 data-full 的气泡里。
+     调用点不用传这个值，从 text 里推即可。 */
+  const full = String(text == null ? "" : text);
+  const short = full.replace(/（[^）]*）/g, "").trim() || full;
+  return `<span class="dot-tag ${kind}" data-full="${esc(full)}" data-short="${esc(short)}"></span>`;
 }
 /* 点状态色点时别触发所在行的点击（例如服务表整行可点开详情） */
 document.addEventListener("click", e => {

@@ -346,6 +346,13 @@ table:has(#fmBody) td:last-child{width:1%}
 @media (max-width:640px){
   .fm-bar select{max-width:118px}
   .fm-bar input{min-width:70px}
+  /* 工具条在窄屏折行：select(118) + input(70) + 三个按钮在 390px 宽的屏幕上
+     合计约 400px，而卡片内只有 344px —— nowrap 只能让整行溢出、连带整页横向滚动。
+     让路径框独占一行，三个按钮落到第二行。 */
+  .fm-bar{flex-wrap:wrap}
+  .fm-bar input{flex:1 1 100%;order:2}
+  .fm-bar select{order:1}
+  .fm-bar button{order:3}
   /* 面包屑在窄屏横向滚动而非折成三行；隐藏滚动条以避免分散注意力 */
   .fm-crumb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .fm-crumb::-webkit-scrollbar{display:none}
@@ -529,6 +536,19 @@ pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;pad
 .dot-tag.bad::before{background:var(--bad);box-shadow:0 0 0 3px rgba(240,68,56,.14)}
 .dot-tag.info::before{background:var(--accent);box-shadow:0 0 0 3px rgba(43,127,255,.14)}
 .dot-tag.mute::before{background:var(--dim2);box-shadow:0 0 0 3px rgba(139,154,177,.12)}
+/* 窄屏下的状态列。
+   手机上这一列只给得出约 100px，而「运行（active / running）」光文字就要 152px ——
+   无论怎么排都会被 ellipsis 切掉尾巴（表现成「运行（active / run...」），反倒像坏了。
+   补注（active / running、inactive / dead 之类）交给长按 / 悬停的气泡，它一直在
+   data-full 里；列内只留中文状态词。dot() 已经按 text 推出了 data-short。 */
+@media (max-width:640px){
+  .dot-tag{max-width:100%}
+  .dot-tag::after{content:attr(data-short)}
+  /* 服务表有 7 列，390px 的屏幕上放不下：描述列（英文说明）在右边缘只会露出一截
+     残片（"Refr/and"、"Acc"），与其如此不如整列收起，把宽度让给服务名、状态与操作。 */
+  table:has(#svcBody) th:nth-child(3),
+  #svcBody td:nth-child(3){display:none}
+}
 /* 服务表 / 容器表：名称与说明小一号，把宽度让给状态与操作 */
 #svcBody td:first-child,#dkBody td:first-child,
 #svcBody td.hint,#dkBody td.hint{font-size:11.5px}
