@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 *.bak
+*.orig
 *.log
 .steward-demo-data/
+.n1bus-demo-data/

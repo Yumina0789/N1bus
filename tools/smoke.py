@@ -283,7 +283,11 @@ try:
     # 递增与「解封保留档位」直接拿类来试，不然得真等 5 分钟
     sys.path.insert(0, str(ROOT))
     import n1bus
-    unit = n1bus.LoginGuard(workdir / "guard-unit.json", window=300, limit=2, tiers=(1, 2, 3))
+    import n1bus_audit
+    import n1bus_cache
+    import n1bus_security
+    import n1bus_util
+    unit = n1bus_security.LoginGuard(workdir / "guard-unit.json", window=300, limit=2, tiers=(1, 2, 3))
     ok(unit.fail("203.0.113.5")[0] is False, "没到次数不封")
     b2 = unit.fail("203.0.113.5")
     ok(b2[0] and b2[1] == 1 and b2[2] == 1, "犯满触发第 1 档：%s" % (b2,))
@@ -291,7 +295,7 @@ try:
     unit.fail("203.0.113.5")
     b4 = unit.fail("203.0.113.5")
     ok(b4[0] and b4[1] == 2 and b4[2] == 2, "解封后档位保留，再犯直接第 2 档（更久）：%s" % (b4,))
-    again = n1bus.LoginGuard(workdir / "guard-unit.json", window=300, limit=2, tiers=(1, 2, 3))
+    again = n1bus_security.LoginGuard(workdir / "guard-unit.json", window=300, limit=2, tiers=(1, 2, 3))
     ok(again.wait_seconds("203.0.113.5") > 0, "换一个实例重新读文件，封禁还在（重启不清零）")
     again.ok("203.0.113.5")
     ok(again.wait_seconds("203.0.113.5") == 0, "登录成功后这个来源的记录整个清掉")
@@ -338,8 +342,8 @@ try:
     fake = http.server.ThreadingHTTPServer(("127.0.0.1", PORT + 1), FakeNimbus)
     threading.Thread(target=fake.serve_forever, daemon=True).start()
     try:
-        enf = n1bus.Enforcer("http://127.0.0.1:%d" % (PORT + 1), "tok", 60,
-                               n1bus.Audit(workdir / "audit2.log"))
+        enf = n1bus_security.Enforcer("http://127.0.0.1:%d" % (PORT + 1), "tok", 60,
+                               n1bus_audit.Audit(workdir / "audit2.log"))
         res = enf.poll_once()
         ok(any(s.get("action") == "ban" and s.get("ip") == "203.0.113.9" for s in seen),
            "把「封这个 IP」回报给了面板：%s" % seen)
@@ -359,9 +363,9 @@ try:
         # 这一层的风险集中在"误封"上，因此测试重点是"该放过的有没有放过"，
         # 而不只是"会不会封"。dry=True 只记录不实际执行 ufw。
         dpath = workdir / "defender.json"
-        d = n1bus.Defender(dpath, threshold=10, enabled=True,
-                             skip=n1bus.parse_networks(n1bus.PRIVATE_NETS),
-                             audit=n1bus.Audit(workdir / "audit3.log"), dry=True)
+        d = n1bus_security.Defender(dpath, threshold=10, enabled=True,
+                             skip=n1bus_util.parse_networks(n1bus_security.PRIVATE_NETS),
+                             audit=n1bus_audit.Audit(workdir / "audit3.log"), dry=True)
         policy = {
             "top_ips": [{"ip": "198.51.100.7",  "n": 40},    # 超过阈值：应封禁
                         {"ip": "198.51.100.8",  "n": 10},    # 恰好等于阈值：不封（判据为"超过"）
@@ -390,9 +394,9 @@ try:
            "解封会自动写入豁免名单（否则下一轮巡检立即重新封禁）")
 
         conf2 = d.configure(enabled=True, threshold=1)
-        ok(conf2["threshold"] == n1bus.AUTOBAN_MIN_THRESHOLD,
+        ok(conf2["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
            "阈值被限制到下限 %d，避免过低而将正常输错密码的来源计入"
-           % n1bus.AUTOBAN_MIN_THRESHOLD)
+           % n1bus_security.AUTOBAN_MIN_THRESHOLD)
         d.configure(threshold=10)
         d.configure(enabled=False)
         skip = d.run_once(None, policy, blk)
@@ -402,10 +406,10 @@ try:
         # 直接 int(threshold)，main() 又把 --auto-ban-after 原样传进来 —— 于是
         # `--auto-ban-after 1` 能让「失败 2 次即永久封禁」，正好打在 ADR 0010 自认的
         # 唯一实际代价（误封风险）上。
-        d2 = n1bus.Defender(None, threshold=1, enabled=True, dry=True)
-        ok(d2.state["threshold"] == n1bus.AUTOBAN_MIN_THRESHOLD,
+        d2 = n1bus_security.Defender(None, threshold=1, enabled=True, dry=True)
+        ok(d2.state["threshold"] == n1bus_security.AUTOBAN_MIN_THRESHOLD,
            "__init__ 也把阈值夹到下限 %d（--auto-ban-after 1 不再生效）"
-           % n1bus.AUTOBAN_MIN_THRESHOLD)
+           % n1bus_security.AUTOBAN_MIN_THRESHOLD)
 
         print("== 自动永久封禁：在线启用 ==")
         # 回归：启动巡检线程的代码曾经只写在 main() 的启动路径里，configure() 只改状态。
@@ -427,19 +431,19 @@ try:
         # 曾经对所有键调用 .startswith() —— 缓存里一旦存在这种键就抛 AttributeError，
         # 而且异常发生在**动作执行完、审计写完之后的清缓存环节**，所以现象是
         # 「动作明明成功了，面板却报 JSON 解析失败」。这里直接测函数本身。
-        n1bus._CACHE.clear()
-        n1bus._CACHE["Services.list"] = (0.0, None)
-        n1bus._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
-        gone = n1bus.clear_data_cache(["Security."])
+        n1bus_cache._CACHE.clear()
+        n1bus_cache._CACHE["Services.list"] = (0.0, None)
+        n1bus_cache._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
+        gone = n1bus_cache.clear_data_cache(["Security."])
         ok(gone == [("Security.logins", (0, 0, 10))],
            "带参数的元组键能被前缀匹配并删除：%s" % (gone,))
-        ok("Services.list" in n1bus._CACHE, "不匹配的字符串键被保留")
-        n1bus._CACHE.clear()
-        n1bus._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
-        ok(n1bus.clear_data_cache(["完全不相干."]) == [], "前缀不匹配时什么都不删")
-        ok(n1bus.clear_data_cache(None) == [("Security.logins", (0, 0, 10))],
+        ok("Services.list" in n1bus_cache._CACHE, "不匹配的字符串键被保留")
+        n1bus_cache._CACHE.clear()
+        n1bus_cache._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
+        ok(n1bus_cache.clear_data_cache(["完全不相干."]) == [], "前缀不匹配时什么都不删")
+        ok(n1bus_cache.clear_data_cache(None) == [("Security.logins", (0, 0, 10))],
            "prefixes=None 时全清，元组键也在其中")
-        n1bus._CACHE.clear()
+        n1bus_cache._CACHE.clear()
     finally:
         fake.shutdown()
 finally:

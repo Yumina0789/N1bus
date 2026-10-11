@@ -28,9 +28,11 @@ def ok(cond, msg):
 
 
 print("== 语法 ==")
-r = subprocess.run([sys.executable, "-m", "py_compile", str(ROOT / "n1bus.py")],
+PY_FILES = sorted(p.name for p in ROOT.glob("n1bus*.py"))
+r = subprocess.run([sys.executable, "-m", "py_compile"] + [str(ROOT / f) for f in PY_FILES],
                    capture_output=True, text=True)
-ok(r.returncode == 0, "n1bus.py 能编译" + ("" if r.returncode == 0 else "：" + r.stderr[-400:]))
+ok(r.returncode == 0, "%d 个 n1bus*.py 都能编译（%s）" % (len(PY_FILES), ", ".join(PY_FILES))
+   + ("" if r.returncode == 0 else "：" + r.stderr[-400:]))
 
 html = (ROOT / "ui.html").read_text(encoding="utf-8")
 # 样式与脚本已拆到 ui.css / ui.js（ui.html 只是骨架 + 两个槽位）。
@@ -115,11 +117,15 @@ if js:
     ok(not written, "没有往「会被移除的 summary 说明位」写内容：%s" % (written or "干净"))
 
 print("== 安全底线 ==")
-src = (ROOT / "n1bus.py").read_text(encoding="utf-8")
-ok("shell=True" not in src, "代码里没有 shell=True")
-ok("os.system(" not in src, "代码里没有 os.system")
-ok(bool(re.search(r"ACTIONS\s*=\s*\{", src)), "白名单动作表存在")
-ok(bool(re.search(r"0o600|0o?600", src)), "token 文件按 600 权限写")
+# 安全底线要扫**全部** n1bus*.py —— 拆分后白名单动作表在 n1bus_actions.py 里，
+# 只扫 n1bus.py 会漏掉（拆分当天就因此红过一次）。
+srcs = {f: (ROOT / f).read_text(encoding="utf-8") for f in PY_FILES}
+all_src = "\n".join(srcs.values())
+ok("shell=True" not in all_src, "代码里没有 shell=True")
+ok("os.system(" not in all_src, "代码里没有 os.system")
+ok(any(re.search(r"ACTIONS\s*=\s*\{", s) for s in srcs.values()),
+   "白名单动作表存在（n1bus_actions.py）")
+ok(bool(re.search(r"0o600|0o?600", all_src)), "token 文件按 600 权限写")
 
 print()
 if fails:
