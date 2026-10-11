@@ -237,18 +237,8 @@ function askForm(body, fields, opts){
   });
 })();
 
-let _forceFresh = 0;
 async function api(path, opts = {}){
-  // 「刷新」按钮走这条路：带一次 fresh=1 绕过服务端那 15/30 秒的只读缓存。
-  // 不带的话点「刷新」拿到的仍是缓存数据，表现为「无响应」。
-  // 用计数器而不是布尔：system 视图一次要拉 8 个接口，得让整轮都绕过；
-  // 否则只有第一个 bypass，其余还是缓存。
-  let p = path;
-  if(_forceFresh > 0){
-    _forceFresh--;
-    p = path + (path.indexOf("?") >= 0 ? "&" : "?") + "fresh=1";
-  }
-  const r = await fetch(p, {...opts, headers: {
+  const r = await fetch(path, {...opts, headers: {
     "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", ...(opts.headers || {})}});
   if(r.status === 401){ showLogin(); throw new Error("unauthorized"); }
   // 后端在处理中途抛异常时，连接会被直接关掉，响应体是空的。此时若直接 r.json()，
@@ -265,8 +255,6 @@ async function api(path, opts = {}){
     throw new Error("服务端返回的不是 JSON（HTTP " + r.status + "）：" + text.slice(0, 140));
   }
 }
-/* 让接下来的 n 次 api() 绕过服务端缓存（刷新按钮用） */
-function forceFresh(n){ _forceFresh = Math.max(_forceFresh, n || 12); }
 
 /* --- 登录 / 首次设置 / 主题 ------------------------------------------- */
 function showLogin(needSetup){
@@ -2552,7 +2540,6 @@ document.querySelectorAll(".subnav button").forEach(b => b.onclick = () => {
 function refreshNow(btn){
   if(btn) btn.classList.add("flash");
   setTimeout(() => btn && btn.classList.remove("flash"), 800);
-  forceFresh();                       // 刷新按钮要取真值，避免命中 30 秒的只读缓存
   loadTab(currentView());
 }
 

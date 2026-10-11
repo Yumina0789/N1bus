@@ -19,13 +19,28 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from n1bus_actions import _val_ip, list_actions, run_action
-from n1bus_cache import (_CACHE_LOCAL, _cache_prefixes_for, _trim_services,
-                         cache_meta, clear_data_cache)
+from n1bus_cache import clear_unit_cache
 from n1bus_files import FILE_UPLOAD_MAX, _human_size, _tail_file, safe_path
 from n1bus_security import PASSWORD_MIN, SESSION_TTL
 from n1bus_util import VERSION, run, same_secret
 
 HERE = Path(__file__).resolve().parent
+
+
+def _trim_services(res, q):
+    """服务列表按 `?limit=` 裁剪（真机上 210 个单元 ≈ 19.5 KB）。
+
+    默认**不裁剪** —— 界面搜索框需要在全部单元中查找，静默截断会使结果与预期不符；
+    只有调用方明确给了 limit 才截，并如实带上 total / truncated。
+    """
+    try:
+        limit = int(q.get("limit", ["0"])[0])
+    except (TypeError, ValueError):
+        limit = 0
+    units = res.get("units") or []
+    if 0 < limit < len(units):
+        res = dict(res, units=units[:limit], truncated=True, total=len(units))
+    return res
 
 
 # --- 页面拼装 ----------------------------------------------------------------
@@ -65,18 +80,12 @@ class Handler(BaseHTTPRequestHandler):
         于是 ui.html 被当成 JSON 字符串发出去（开头多个引号、换行变成字面 \\n、引号变成
         \\"），浏览器把整页当纯文本渲染 —— 表现就是「页面没有 CSS」。v1m-dash 那边一直是
         按类型分别处理的，因此只有 N1bus 出现该问题。
-
-        另外：如果 body 是 dict 且这一趟走了只读缓存，就附一句 `_cache` 元数据，
-        让界面能如实标注「这批数据是 N 秒前的」——而不是把缓存旧值当作实时值返回。
         """
         if isinstance(body, bytes):
             data = body
         elif isinstance(body, str):
             data = body.encode("utf-8")
         else:
-            meta = cache_meta()
-            if meta and isinstance(body, dict):
-                body = dict(body, _cache=meta)   # 新建字典：不写回缓存中的原始对象
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -174,9 +183,6 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if not self._client_ok():
             return self._send(403, {"error": "forbidden", "hint": "来源地址不在 --allow-ip 白名单内"})
-        # ?fresh=1：本次请求绕过只读缓存，读取当前实际值（界面的「强制刷新」使用该参数）
-        _CACHE_LOCAL.fresh = q.get("fresh", ["0"])[0] in ("1", "true", "yes")
-        _CACHE_LOCAL.last = (False, 0.0, 0.0)
         if u.path in ("/", "/index.html"):
             return self._send(200, build_page(), "text/html; charset=utf-8")
         if u.path == "/api/meta":
@@ -330,9 +336,6 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if not self._client_ok():
             return self._send(403, {"error": "forbidden", "hint": "来源地址不在 --allow-ip 白名单内"})
-        # POST 一律取真值：写操作前的判断不该建立在陈旧观测上
-        _CACHE_LOCAL.fresh = True
-        _CACHE_LOCAL.last = (False, 0.0, 0.0)
         acc = self.app["accounts"]
         ip = self._client_ip()
 
@@ -528,11 +531,10 @@ class Handler(BaseHTTPRequestHandler):
             res = run_action(action, body.get("params") or {}, ip,
                              self.app["probe"].audit,
                              dry=not self.app["probe"].real)
-            # 动作确实改变了系统状态（启停服务、封 IP、清日志等）时，只读缓存必须立即失效，
-            # 否则用户刚点完"启动"，界面仍会因缓存旧值显示为未启动。
-            # 只作废**该动作影响到的**相关项（见 CACHE_KEYS_FOR_ACTION）：全量清除会使
-            # 下一个 tick 将 docker / 安全 / 网络等无关观测一并重新查询。
+            # 动作确实改变了系统状态（启停服务、封 IP、清日志等）时，单元属性缓存必须立即
+            # 失效，否则用户刚点完「设为开机自启」，界面仍会拿旧值显示为未启用。
+            # 这批表没有 TTL、只在写操作后整批作废（重新查询一批单元约 10 ms）。
             if res.get("ok") and not res.get("demo"):
-                clear_data_cache(_cache_prefixes_for(action))
+                clear_unit_cache()
             return self._send(200, res)
         return self._send(404, {"error": "not found"})

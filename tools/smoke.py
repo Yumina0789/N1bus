@@ -426,24 +426,16 @@ try:
         dd = json.loads(body).get("defender") or {}
         ok(dd.get("running") is True, "打开之后巡检线程真的在跑（曾经只改状态、永不巡检）")
 
-        print("== 缓存作废：不能假定缓存键是字符串 ==")
-        # 回归测试。带参数方法的缓存键是 (方法名, 参数元组)，而 clear_data_cache
-        # 曾经对所有键调用 .startswith() —— 缓存里一旦存在这种键就抛 AttributeError，
-        # 而且异常发生在**动作执行完、审计写完之后的清缓存环节**，所以现象是
-        # 「动作已成功执行，面板却报 JSON 解析失败」。此处直接测试函数本身。
-        n1bus_cache._CACHE.clear()
-        n1bus_cache._CACHE["Services.list"] = (0.0, None)
-        n1bus_cache._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
-        gone = n1bus_cache.clear_data_cache(["Security."])
-        ok(gone == [("Security.logins", (0, 0, 10))],
-           "带参数的元组键能被前缀匹配并删除：%s" % (gone,))
-        ok("Services.list" in n1bus_cache._CACHE, "不匹配的字符串键被保留")
-        n1bus_cache._CACHE.clear()
-        n1bus_cache._CACHE[("Security.logins", (0, 0, 10))] = (0.0, None)
-        ok(n1bus_cache.clear_data_cache(["完全不相干."]) == [], "前缀不匹配时什么都不删")
-        ok(n1bus_cache.clear_data_cache(None) == [("Security.logins", (0, 0, 10))],
-           "prefixes=None 时全清，元组键也在其中")
-        n1bus_cache._CACHE.clear()
+        print("== 单元属性缓存：写操作后必须整批作废 ==")
+        # 这三张表没有 TTL（模块级、进程内）。留下旧值会让界面显示 enabled 而 systemctl
+        # 实际已 disabled —— 表现为「点击开机自启无反应」（该故障出现过）。
+        # 因此动作执行成功后必须整批清空。
+        n1bus_cache.UNIT_STATE_CACHE["x.service"] = "enabled"
+        n1bus_cache.UNIT_PATH_CACHE["x.service"] = "/lib/systemd/system/x.service"
+        n1bus_cache.UNIT_PROBED.add("x.service")
+        n1bus_cache.clear_unit_cache()
+        ok(not n1bus_cache.UNIT_STATE_CACHE and not n1bus_cache.UNIT_PATH_CACHE
+           and not n1bus_cache.UNIT_PROBED, "clear_unit_cache() 清空三张单元属性表")
     finally:
         fake.shutdown()
 finally:

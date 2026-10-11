@@ -8,7 +8,7 @@ import threading
 import time
 
 from n1bus_util import NAME_RE, UNIT_RE, LOG_DIRS, read_text, run
-from n1bus_cache import UNIT_PATH_CACHE, UNIT_STATE_CACHE, UNIT_PROBED, cached
+from n1bus_cache import UNIT_PATH_CACHE, UNIT_STATE_CACHE, UNIT_PROBED
 from n1bus_actions import PROTECTED_UNITS
 
 

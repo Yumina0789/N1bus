@@ -7,7 +7,7 @@ n1bus —— 服务器管理面板的入口。
 其余代码按域拆在 n1bus_*.py 里：
 
     n1bus_util      通用工具（子进程、文本、网段、密钥比较）
-    n1bus_cache     只读 TTL 缓存
+    n1bus_cache     单元属性缓存（systemd 单元 → 路径 / 状态）
     n1bus_audit     审计日志
     n1bus_files     文件管理器（白名单根 + 路径判定）
     n1bus_actions   白名单动作表 + 参数校验 + 执行

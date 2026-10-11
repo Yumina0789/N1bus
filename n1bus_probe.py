@@ -11,7 +11,6 @@ import time
 
 from n1bus_util import (LOG_DIRS, NAME_RE, REAL_FS, UNIT_RE, dur_text, host_info,
                         now_iso, read_text, run)
-from n1bus_cache import cached
 from n1bus_actions import PROTECTED_UNITS
 from n1bus_files import (FILE_EDIT_MAX, FILE_MAX_ENTRIES, FILE_ROOTS, FILE_TEXT_LIMIT,
                          FILE_UPLOAD_MAX, _human_size, _size_bytes, _tail_file,
