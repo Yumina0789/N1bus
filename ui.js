@@ -411,7 +411,7 @@ async function loadOverview(){
     drawSpark(j.series || []);
   }catch(e){ if(e.message !== "unauthorized") console.warn(e); }
 }
-/* 概览折叠块：进程与服务 / 登录失败来源（失败排行复用安全页那份缓存） */
+/* 概览折叠块：进程与服务 / 失败尝试来源（失败排行复用安全页那份缓存） */
 let OV_PROC = null, SECLOG = null;
 function renderOvProc(){
   const box = document.getElementById("ovProc");

@@ -156,7 +156,7 @@
             <div class="ov-stat"><span class="k">服务</span><b id="stSvc">–</b><em id="stSvcSub">–</em></div>
             <div class="ov-stat"><span class="k">容器</span><b id="stDk">–</b><em id="stDkSub">运行中 / 全部</em></div>
             <div class="ov-stat"><span class="k">进程</span><b id="stProc">–</b><em id="stProcSub">–</em></div>
-            <div class="ov-stat"><span class="k">登录失败</span><b id="stFail">–</b><em id="stFailSub">–</em></div>
+            <div class="ov-stat"><span class="k">失败尝试</span><b id="stFail">–</b><em id="stFailSub">–</em></div>
           </div>
         </div>
 
@@ -202,7 +202,7 @@
         </details>
 
         <details class="fold" open>
-          <summary>登录失败来源</summary>
+          <summary>失败尝试来源</summary>
           <div class="foldbody">
             <div class="scroll"><table><thead><tr><th>来源 IP</th><th class="num">失败次数</th>
               <th class="num">占比</th></tr></thead><tbody id="ovSec"></tbody></table></div>
@@ -383,13 +383,13 @@
   <section id="tab-security" class="hidden">
     <div class="subnav glass" id="subnav-security">
       <button data-sub="guard" class="active"><svg class="ico"><use href="#i-shield"/></svg>防护</button>
-      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>登录失败</button>
+      <button data-sub="faillog"><svg class="ico"><use href="#i-ban"/></svg>失败尝试</button>
       <button data-sub="svcstate"><svg class="ico"><use href="#i-server"/></svg>服务状态</button>
     </div>
 
     <!-- 这四个统计跨子标签共用，置于子导航下方共享，避免重复渲染三遍 -->
     <div class="grid g4" style="margin-bottom:var(--gap)">
-      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-ban"/></svg>登录失败</div>
+      <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-ban"/></svg>失败尝试</div>
         <div class="v" id="seFailed">–</div><div class="n">auth.log 累计失败</div></div>
       <div class="stat glass"><div class="k"><svg class="ico"><use href="#i-check"/></svg>登录成功</div>
         <div class="v" id="seOk">–</div><div class="n">auth.log 累计成功</div></div>
