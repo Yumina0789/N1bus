@@ -146,6 +146,27 @@ curl -fsSL https://raw.githubusercontent.com/Yumina0789/N1bus/main/install.sh | 
 它会装到 `/opt/n1bus`、把 token 写进 `/var/lib/n1bus/n1bus.token`（600），
 并启好 `n1bus.service`。升级就是重跑一遍（旧文件会留 `.bak`）。
 
+### 用 git 部署（推荐，升级更干净）
+
+```bash
+sudo git clone https://github.com/Yumina0789/N1bus.git /opt/n1bus-src
+cd /opt/n1bus-src && sudo bash install.sh
+```
+
+之后升级只要：
+
+```bash
+cd /opt/n1bus-src && sudo bash upgrade.sh          # git pull + 重装
+cd /opt/n1bus-src && sudo bash upgrade.sh --check  # 只看有没有新版本，什么都不改
+```
+
+`upgrade.sh` 会**从现有的 systemd 单元里把部署参数捞出来原样带上**（`--bind`、`--allow-ip`、
+`--enforce-url`、`--enforce-token`、`--port`、`--data-dir`）。不这么做的话，重装会按默认值
+重写单元，那些参数被静默丢掉 —— 表现为「升级之后反向代理连不上面板」或者「自动封禁莫名关闭」。
+
+已经用上面 `curl` 方式装好的机器随时可以迁过来：`/opt/n1bus` 是部署目录、
+`/opt/n1bus-src` 是仓库，互不干扰；升级时旧文件照旧自动留 `.bak`。
+
 从本机访问时建议使用 SSH 隧道，无需对外暴露任何端口：
 
 ```bash
