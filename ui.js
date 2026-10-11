@@ -1218,6 +1218,46 @@ function saveTimezone(){
   runAction("time.set_timezone", {tz: v});
 }
 /* --- 文件管理器 -------------------------------------------------------- */
+/* 行内「⋯」菜单。
+   先前把「重命名 / 删除」平铺成文字按钮，一行 3~4 个，操作列占了近三分之一宽度，
+   扫一眼全是字。现在低频与危险动作收进菜单，行内只留一个图标动作 + 这个入口。
+   **菜单必须 fixed 定位**：表格在 .scroll（overflow:auto）里，absolute 的浮层会被
+   容器裁掉，只能看到一条边。
+   动作表按「行」注册在 Map 里、用短键引用 —— 把函数直接塞进 onclick 属性会立刻
+   撞上引号转义，而这里是文件名，什么都可能有。 */
+const FMACTS = new Map();
+let FMACTS_N = 0;
+function fmMoreBtn(actions){
+  const key = "a" + (++FMACTS_N);
+  FMACTS.set(key, actions);
+  return '<button class="act view mini ico-only" title="更多操作" ' +
+         'onclick="fmMoreOpen(event,\'' + key + '\')">' +
+         '<svg class="ico"><use href="#i-more"/></svg></button>';
+}
+function fmMoreClose(){
+  const box = document.getElementById("fmMenu");
+  if(box) box.classList.remove("open");
+}
+function fmMoreOpen(ev, key){
+  ev.stopPropagation();                 // 别让 document 上那个"点别处即关"立刻收掉
+  const acts = FMACTS.get(key) || [];
+  const box = document.getElementById("fmMenu");
+  if(!box || !acts.length) return;
+  box.innerHTML = acts.map(a =>
+    '<button class="' + (a.danger ? "danger" : "") + '" onclick="' + a.fn +
+    ';fmMoreClose()">' + esc(a.t) + '</button>').join("");
+  box.classList.add("open");
+  // 先显示再量尺寸：贴底时向上翻，贴右时向左收
+  const r = ev.currentTarget.getBoundingClientRect();
+  const h = box.offsetHeight, w = box.offsetWidth;
+  box.style.top = (r.bottom + 6 + h > window.innerHeight
+    ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
+  box.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+}
+document.addEventListener("click", fmMoreClose);
+document.addEventListener("keydown", e => { if(e.key === "Escape") fmMoreClose(); });
+window.addEventListener("scroll", fmMoreClose, true);
+
 /* 服务端所有写操作都过 safe_write_path（realpath 之后仍在白名单根内）并进审计；
    这里的前端只负责避免用户误操作 —— 删除/覆盖一律 askConfirm()。 */
 let FMPATH = "";
@@ -1297,17 +1337,25 @@ async function loadFiles(path){
   if(meta) meta.textContent = (j.entries || []).length + " 项" +
     (j.truncated ? "（只显示前 200 条）" : "");
 
+  FMACTS.clear();          // 每次重列都重建动作表，上一次的键不再有意义
   body.innerHTML = (j.entries || []).map(e => {
     const full = fmJoin(FMPATH, e.name);
     const q = fmEscape(full);
     const acts = e.dir
-      ? `<button class="act view mini" onclick="loadFiles('${q}')">打开</button>
-         <button class="act ghost mini" onclick="fmRename('${q}', true)">重命名</button>
-         <button class="act danger mini" onclick="fmDelete('${q}', true)">删除</button>`
-      : `<button class="act view mini" onclick="fmEdit('${q}')">编辑</button>
-         <button class="act ghost mini" onclick="fmDownload('${q}')">下载</button>
-         <button class="act ghost mini" onclick="fmRename('${q}', false)">重命名</button>
-         <button class="act danger mini" onclick="fmDelete('${q}', false)">删除</button>`;
+      ? `<button class="act view mini ico-only" title="打开" onclick="loadFiles('${q}')">
+           <svg class="ico"><use href="#i-folder"/></svg></button>
+         ${fmMoreBtn([
+           {t: "重命名", fn: `fmRename('${q}', true)`},
+           {t: "删除", danger: true, fn: `fmDelete('${q}', true)`},
+         ])}`
+      : `<button class="act view mini ico-only" title="编辑" onclick="fmEdit('${q}')">
+           <svg class="ico"><use href="#i-pencil"/></svg></button>
+         <button class="act view mini ico-only" title="下载" onclick="fmDownload('${q}')">
+           <svg class="ico"><use href="#i-download"/></svg></button>
+         ${fmMoreBtn([
+           {t: "重命名", fn: `fmRename('${q}', false)`},
+           {t: "删除", danger: true, fn: `fmDelete('${q}', false)`},
+         ])}`;
     return `<tr>
       <td class="mono">${e.dir ? '<span class="tag info">目录</span> ' : ""}${esc(e.name)}${
         e.link ? ' <span class="tag mute">链接</span>' : ""}</td>
